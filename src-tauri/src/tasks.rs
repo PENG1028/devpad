@@ -200,7 +200,7 @@ pub fn mcp_config() -> Result<Value> {
         std::env::var_os("APPIMAGE").map(std::path::PathBuf::from),
         std::env::var_os("APPDIR").map(std::path::PathBuf::from),
     ) {
-        (Some(image), Some(dir)) if image.is_absolute() && command.starts_with(dir) => image,
+        (Some(image), Some(dir)) if image.is_absolute() && command.starts_with(&dir) => image,
         _ => command,
     };
     let mut server = json!({"command":command,"args":["--mcp"]});

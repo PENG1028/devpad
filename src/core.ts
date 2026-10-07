@@ -48,5 +48,5 @@ export function compose(project:string,entries:Entry[],all:Entry[]=entries,batch
  }).join('\n\n');
  const variables:Record<string,string>={content,image_map:imageMap.join('\n\n'),project,batch};
  const rendered=template.body.replace(/\{\{\s*([^{}]*?)\s*\}\}/g,(_,key:string)=>{key=key.trim();if(!Object.hasOwn(variables,key))throw new Error(`未知模板变量：${key}`);return variables[key];});
- return {count:records.length,text:rendered,files,manifest:{version:1,template:template.id,batch,records:records.map((e,i)=>({id:e.id,text:e.text,files:files.filter(f=>f.record===i+1).map(({source,mark,...f})=>f)}))}};
+ return {count:records.length,text:rendered,files,manifest:{version:1,template:template.id,layout:template.body==='{{content}}'&&!template.metadata?'records':'template',batch,records:records.map((e,i)=>({id:e.id,text:e.text,files:files.filter(f=>f.record===i+1).map(({source,mark,...f})=>({...f,originalName:e.attachments[f.picture-1].name}))}))}};
 }

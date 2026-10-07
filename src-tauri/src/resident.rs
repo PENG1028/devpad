@@ -5,6 +5,17 @@ use tauri::{Emitter, Manager, menu::{Menu, MenuItem}, tray::{TrayIconBuilder, Tr
 #[derive(Default)]
 pub struct Resident { pub hidden: AtomicBool, pub visible_before_hide: Mutex<Vec<String>> }
 
+pub fn set_application_id(id:&str)->Result<()> {
+    #[cfg(windows)]{
+        #[link(name="shell32")]extern "system"{fn SetCurrentProcessExplicitAppUserModelID(id:*const u16)->i32;}
+        let value:Vec<u16>=id.encode_utf16().chain(std::iter::once(0)).collect();
+        let result=unsafe{SetCurrentProcessExplicitAppUserModelID(value.as_ptr())};
+        if result<0{return Err(format!("设置任务栏应用标识失败：{result}"));}
+    }
+    #[cfg(not(windows))]let _=id;
+    Ok(())
+}
+
 pub fn restore(app: &tauri::AppHandle) {
     let was_hidden=app.state::<Resident>().hidden.swap(false, Ordering::SeqCst);
     let labels=if was_hidden {app.state::<Resident>().visible_before_hide.lock().map(|mut labels|std::mem::take(&mut *labels)).unwrap_or_default()}else{Vec::new()};
