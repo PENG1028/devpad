@@ -1,0 +1,68 @@
+/* Each native window owns a fixed frame and a single content viewport. */
+html,body,#app{width:100%;height:100%;overflow:hidden}
+.app-shell{height:100dvh;min-height:0}
+.aux-titlebar{flex:0 0 44px;z-index:20}
+.editor-window .bottom-area{flex:1;min-height:0;max-height:none;padding:0;overflow:hidden}
+.editor-context{flex-shrink:0;min-width:0;padding:10px 16px;gap:8px}
+.editor-context span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.editor-window .composer{min-height:0;overflow:hidden;flex:1}
+.editor-window .composer-head,.composer-footer{flex-shrink:0}
+.editor-window .editor-scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+.editor-window .composer textarea{min-height:150px;field-sizing:content;overflow:hidden}
+.editor-fields{flex-wrap:wrap;gap:10px}
+.editor-fields label{min-width:0;max-width:100%}.editor-fields select{max-width:240px}
+.panel-window .aux-titlebar{position:fixed;inset:0 0 auto 0;height:44px}
+.sheet.standalone{position:fixed;inset:44px 0 0;margin:0;width:100%;max-width:none;height:calc(100dvh - 44px);max-height:none;overflow:hidden;border:0;border-radius:0}
+.sheet.standalone[open]{display:flex;flex-direction:column}
+.sheet.standalone .sheet-header{flex-shrink:0}.sheet.standalone .sheet-header>.icon-button{display:none}
+.sheet.standalone .sheet-body{flex:1;min-height:0;overflow:auto}
+.sheet.standalone.delivery .sheet-body{display:flex;flex-direction:column;overflow:hidden;gap:10px;padding:12px 20px}
+.standalone.delivery .prompt-preview{flex:1;min-height:40px;height:auto;margin:0;overflow:auto}
+.standalone.delivery .delivery-summary,.standalone.delivery .delivery-actions,.standalone.delivery .delivery-help,.standalone.delivery .feedback,.standalone.delivery .source-warning,.standalone.delivery .delivery-warning{flex-shrink:0;margin:0}
+.source-warning{color:var(--secondary);font-size:12px;line-height:1.5;border-left:2px solid var(--blue);padding-left:8px}
+.list-tools{display:flex;align-items:center;gap:8px;flex-shrink:0;padding-top:6px;padding-bottom:6px;flex-wrap:wrap}
+.list-tools button{font-size:12px;min-height:32px;background:var(--surface)}
+.note-primary-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.note-primary-actions>button{font-size:12px;min-height:34px;padding:5px 10px}
+.selection-toolbar{margin:0;padding:6px 0}.selection-actions,.selection-info{gap:4px;flex-wrap:wrap}
+.selection-check{min-width:28px;min-height:28px}.selection-info>button{min-height:32px}
+.initialization-error{position:fixed;inset:60px 16px auto;z-index:50;background:var(--surface);border:1px solid var(--line);padding:16px;border-radius:8px}
+@media(max-height:460px){.editor-context{padding:4px 10px}.composer-footer{padding:4px}.delivery-help{font-size:11px}.standalone.delivery .sheet-header{padding:8px 20px}.standalone.delivery .sheet-body{gap:6px;padding:6px 14px}.bottom-area{max-height:55dvh}.selection-toolbar button{padding:4px 7px;font-size:12px}}
+
+/* Compact list controls stay outside the scrolling cards. */
+.list-tools{gap:8px;padding:12px 0;border-bottom:1px solid var(--line);min-height:56px}
+.list-heading{display:flex;align-items:baseline;gap:8px;margin-right:auto}.list-heading strong{font-size:18px;font-weight:600}.list-heading span{font-size:12px;color:var(--muted)}
+.list-tools .select-mode-button{display:inline-flex;gap:5px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:4px 10px;min-height:28px}
+.select-mode-button[aria-pressed=true]{color:var(--blue);border-color:var(--blue)}
+.list-tools>button:not(.select-mode-button){background:transparent;padding:4px 6px;min-height:28px}
+.notes-scroll{overscroll-behavior:contain;scroll-padding-top:12px}
+.list-tools{position:relative;z-index:12}
+.list-tools::after{content:'';position:absolute;left:0;right:0;bottom:-10px;height:10px;background:linear-gradient(var(--bg),transparent);pointer-events:none}
+.notes-content{padding-top:12px;padding-bottom:16px}.notes-content .section-title{display:none}
+.notes-content article{padding:14px 12px;margin:8px 0;border:1px solid transparent;border-bottom-color:var(--line);border-radius:12px;gap:10px}
+.notes-content article.selected{background:var(--selected);border-color:var(--line);margin-inline:0}
+.note-heading{gap:12px}.note-heading h2{font-size:15px;line-height:1.65}
+.note-heading-tools{display:flex;align-items:center;gap:6px;flex-shrink:0;margin-top:1px;position:relative}
+.note-menu{width:28px!important;height:28px!important;min-height:28px!important;padding:4px!important}
+.note-heading-tools:has([data-copy-expanded=true]){z-index:8}
+.note-heading-tools:has([data-copy-expanded=true])::before{content:'';position:absolute;inset:-4px -4px -4px -80px;border-radius:20px;background:var(--bg);box-shadow:0 3px 12px #0002;pointer-events:none}
+.note-heading-tools .note-actions{z-index:3}.note-heading-tools .quick-actions{z-index:40}
+.range-selection{margin-top:6px;text-align:right}.range-selection button{min-height:24px;padding:2px 6px;font-size:11px;color:var(--secondary)}
+.selection-check{width:20px;height:20px;min-width:20px;min-height:20px;margin-top:4px}.selection-check svg{width:12px;height:12px}
+.selection-toolbar{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:8px 10px;margin:0}
+.selection-info{flex-wrap:nowrap;gap:6px;min-height:32px}.selection-info strong{white-space:nowrap;font-size:12px}
+.selection-info>button{min-height:26px;padding:3px 6px;font-size:12px}
+.selection-actions{padding-top:4px;gap:4px}.selection-actions>button{min-height:26px;padding:3px 7px;font-size:12px}
+.selection-info .copy-control{margin-left:78px}.selection-info .spacer{min-width:0}
+.move-project-label{display:block;margin:16px 0 8px;font-size:13px}#move-project{width:100%}
+.notes-content .day-label{margin:10px 0 4px}
+@media(max-width:520px){.list-tools{flex-wrap:wrap;gap:4px}.list-heading{flex:1}.list-tools>button{font-size:11px}.notes-content article{padding:12px 8px}.selection-info .copy-control{margin-left:36px}.note-heading{gap:8px}.note-heading h2{font-size:14px}}
+@media(max-height:460px){.list-tools{min-height:42px;padding:6px 0}.notes-content{padding-top:2px}.selection-toolbar{padding:5px 8px}.bottom-area{padding-top:6px;padding-bottom:6px}.feedback{font-size:11px;padding:4px 0}}
+
+/* Keep the toolbar inside the shifted content column, above the scroll viewport. */
+.sidebar-open>.list-tools{width:calc(100% - 328px);margin-left:304px;margin-right:24px}
+.sheet.sidebar{box-shadow:none}
+.selection-info{flex-wrap:wrap}.selection-info .spacer{min-width:8px}
+.selection-info>button{white-space:nowrap}
+.attachment .annotate-image{position:absolute;left:4px;bottom:4px;background:var(--bg);border:1px solid var(--line);font-size:11px;min-height:26px;padding:3px 7px}
+.editor-fields label{display:flex;align-items:center;gap:8px}

@@ -1,0 +1,3 @@
+const {chromium}=require('C:/Users/ZHP/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const path=require('node:path');
+(async()=>{const browser=await chromium.connectOverCDP('http://127.0.0.1:9227');const page=browser.contexts()[0].pages().find(p=>!p.url().includes('?window='));const data=await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('load'));if(!path.resolve(data.dataDir).startsWith(path.resolve('.tools/desktop-test-')))throw Error('Refusing to close a non-test application');await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('exit_app',{discard:true})).catch(()=>{});await browser.close().catch(()=>{});})().catch(e=>{console.error(e);process.exit(1)});

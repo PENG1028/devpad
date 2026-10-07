@@ -1,0 +1,3 @@
+const {chromium}=require('C:/Users/ZHP/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+(async()=>{const browser=await chromium.connectOverCDP('http://127.0.0.1:9227');const page=browser.contexts()[0].pages()[0];await page.locator('article').click({button:'right'});await page.getByRole('dialog',{name:'笔记操作'}).waitFor();await page.getByRole('button',{name:'编辑笔记',exact:true}).click();await page.getByRole('button',{name:'取消编辑'}).click();console.log('PASS final native context menu: right click, edit, cancel.');await browser.close();})().catch(e=>{console.error(e);process.exit(1)});
+

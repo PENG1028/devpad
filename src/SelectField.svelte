@@ -1,0 +1,21 @@
+<script lang="ts">
+ import {onMount, tick} from 'svelte';
+ import Icon from './Icon.svelte';
+ let {value=$bindable(''),options,label,disabled=false,resetAfterPick=false,onchange}:{value?:string;options:{value:string;label:string}[];label:string;disabled?:boolean;resetAfterPick?:boolean;onchange?:(value:string)=>void}=$props();
+ const uid=$props.id();
+ let trigger:HTMLButtonElement, menu:HTMLDivElement, opened=$state(false);
+ function close(){if(menu?.matches(':popover-open'))menu.hidePopover();opened=false;}
+ async function show(){if(disabled)return;if(opened){close();return;}const r=trigger.getBoundingClientRect();menu.style.width=`${Math.min(Math.max(r.width,180),innerWidth-16)}px`;menu.style.left=`${Math.max(8,Math.min(r.left,innerWidth-Math.max(r.width,180)-8))}px`;const below=innerHeight-r.bottom-8;const above=r.top-8;menu.style.maxHeight=`${Math.min(280,Math.max(below,above))}px`;menu.style.top=below>=Math.min(240,above)?`${r.bottom+4}px`:'auto';menu.style.bottom=below>=Math.min(240,above)?'auto':`${innerHeight-r.top+4}px`;menu.showPopover();opened=true;await tick();const buttons=menu.querySelectorAll<HTMLButtonElement>('[role=option]');buttons[Math.max(0,options.findIndex(o=>o.value===value))]?.focus();}
+ function choose(next:string){value=resetAfterPick?'':next;onchange?.(next);close();trigger.focus();}
+ function key(e:KeyboardEvent){const buttons=Array.from(menu.querySelectorAll<HTMLButtonElement>('[role=option]'));const index=buttons.indexOf(document.activeElement as HTMLButtonElement);let next=index;if(e.key==='ArrowDown')next=(index+1)%buttons.length;else if(e.key==='ArrowUp')next=(index-1+buttons.length)%buttons.length;else if(e.key==='Home')next=0;else if(e.key==='End')next=buttons.length-1;else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();trigger.focus();return;}else if(e.key==='Tab'){close();return;}else return;e.preventDefault();e.stopPropagation();buttons[next]?.focus();}
+ onMount(()=>{const scroll=(e:Event)=>{if(!menu.contains(e.target as Node))close();};window.addEventListener('resize',close);window.addEventListener('scroll',scroll,true);window.addEventListener('dismiss-note-popovers',close);return()=>{window.removeEventListener('resize',close);window.removeEventListener('scroll',scroll,true);window.removeEventListener('dismiss-note-popovers',close);};});
+</script>
+<button type="button" class="select-field" role="combobox" aria-label={label} aria-expanded={opened} aria-controls={uid} aria-haspopup="listbox" {disabled} bind:this={trigger} onclick={show} onkeydown={e=>{if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();void show();}}}><span>{options.find(o=>o.value===value)?.label||'请选择'}</span><Icon name="chevron" size={14}/></button>
+<div id={uid} class="select-options" popover="auto" role="listbox" tabindex="-1" aria-label={label} bind:this={menu} ontoggle={()=>opened=menu.matches(':popover-open')} onkeydown={key}>
+ {#each options as option}<button type="button" role="option" aria-selected={option.value===value} tabindex="-1" onclick={()=>choose(option.value)}><span>{option.label}</span>{#if option.value===value}<Icon name="check" size={14}/>{/if}</button>{/each}
+ {#if !options.length}<span class="empty-options">暂无选项</span>{/if}
+</div>
+<style>
+ .select-field{display:inline-flex;justify-content:space-between;gap:12px;min-width:90px;max-width:100%;min-height:34px;padding:7px 10px;border:1px solid var(--line);background:var(--surface);border-radius:9px;color:var(--text);font-size:13px}.select-field span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .select-options{position:fixed;inset:auto;margin:0;padding:5px;overflow:auto;border:1px solid var(--line);border-radius:11px;background:var(--bg);color:var(--text);box-shadow:0 8px 24px #0002;overscroll-behavior:contain}.select-options:popover-open{display:block}.select-options button{display:flex;width:100%;justify-content:space-between;text-align:left;min-height:34px;font-size:13px;padding:7px 9px;border-radius:6px}.select-options button span{overflow-wrap:anywhere}.select-options button[aria-selected=true]{background:var(--surface);font-weight:600}.select-options button:focus{outline:2px solid var(--blue);outline-offset:-2px}.empty-options{display:block;padding:8px;font-size:13px;color:var(--secondary)}
+</style>
