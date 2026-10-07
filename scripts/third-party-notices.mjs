@@ -1,0 +1,7 @@
+import fs from 'node:fs';import path from 'node:path';import {execFileSync} from 'node:child_process';
+const meta=JSON.parse(execFileSync(process.env.CARGO||'cargo',['metadata','--locked','--format-version','1','--manifest-path','src-tauri/Cargo.toml'],{maxBuffer:32*1024*1024}));
+const parts=['# Third-party notices','DevPad dependencies retain their own licenses. This inventory includes dependencies for all supported build targets.'];
+function add(name,version,license,dir,repository){parts.push(`\n## ${name} ${version}\nLicense: ${license||'See upstream license'}\n${repository||''}`);for(const file of fs.readdirSync(dir)){if(/^(license|licence|copying|notice)([._-].*)?$/i.test(file)&&fs.statSync(path.join(dir,file)).isFile())parts.push(`\n### ${file}\n\n${fs.readFileSync(path.join(dir,file),'utf8')}`);}}
+for(const p of meta.packages.filter(p=>p.name!=='devpad').sort((a,b)=>a.name.localeCompare(b.name)))add(p.name,p.version,p.license,path.dirname(p.manifest_path),p.repository);
+const lock=JSON.parse(fs.readFileSync('package-lock.json'));for(const [dir,p] of Object.entries(lock.packages)){if(!dir||p.dev||!fs.existsSync(path.join(dir,'package.json')))continue;const pkg=JSON.parse(fs.readFileSync(path.join(dir,'package.json')));add(pkg.name,pkg.version,pkg.license,dir,typeof pkg.repository==='string'?pkg.repository:pkg.repository?.url);}
+fs.writeFileSync('THIRD_PARTY_NOTICES.md',parts.join('\n')+'\n');console.log('Third-party notices generated');

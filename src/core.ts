@@ -1,6 +1,6 @@
 export const types = ['Bug','UX','Feature','Idea','Question','Note'] as const;
 export type Attachment = {id:string;name:string;path:string};
-export type Entry = {id:string;projectId:string;type:string;text:string;createdAt:string;updatedAt:string;tags:string[];attachments:Attachment[];status:string;references:string[]};
+export type Entry = {revision?:number;id:string;projectId:string;type:string;text:string;createdAt:string;updatedAt:string;tags:string[];attachments:Attachment[];status:string;references:string[]};
 export type Project = {id:string;name:string};
 export function editorSignature(value:{projectId:string;type:string;text:string;tagInput:string;attachments:Attachment[];references:string[]}){
  return JSON.stringify({projectId:value.projectId,type:value.type,text:value.text.replace(/\r\n?/g,'\n'),tags:tagsOf(value.tagInput).sort(),attachments:value.attachments.map(a=>[a.id,a.name,a.path]),references:[...value.references]});
@@ -26,11 +26,27 @@ export function bundleName(a:Attachment,index:number){
  const extension=a.path.split('.').pop()?.toLowerCase();const ext=['png','jpg','jpeg','webp'].includes(extension||'')?extension:'png';
  return `${String(index+1).padStart(3,'0')}-${stem}.${ext}`;
 }
-export function compose(project:string,entries:Entry[],all:Entry[]=entries,batch='PREVIEW'){
- const expanded:Entry[]=[]; const seen=new Set<string>();
- function add(e:Entry){if(seen.has(e.id))return;seen.add(e.id);expanded.push(e);for(const id of e.references){const ref=all.find(x=>x.id===id);if(ref)add(ref);}}
- entries.forEach(add);let index=0;
- const files: {source:string;name:string;mark:{record:number;picture:number;batch:string}}[]=[];
- const sections=expanded.map((e,i)=>{const names=e.attachments.map((a,j)=>{const label=`记录 ${String(i+1).padStart(2,'0')} · 图片 ${String(j+1).padStart(2,'0')}`;const name=`${batch}-R${i+1}-P${j+1}-${bundleName(a,index++).replace(/\.[^.]+$/,'.png')}`;files.push({source:a.path,name,mark:{record:i+1,picture:j+1,batch}});return `${label}（${name}）`;});return `## ${i+1}. ${e.type} · ${e.id.slice(0,8)} · 记录 ${String(i+1).padStart(2,'0')}\n\n${e.text}\n\n状态：${e.status}${e.tags.length?'\n标签：'+e.tags.join(', '):''}${names.length?'\n附件：\n'+names.map(n=>'- '+n).join('\n'):''}`;});
- return {count:expanded.length,text:`# ${project} · 本轮开发上下文\n\n交付批次：${batch}\n请先识别重复问题与修改冲突，再统一实施并说明验证结果。Done 记录仅作背景参考；不确定之处请明确指出。\n图片按图上“批次、记录、图片”编号对应，不依赖上传文件名或排列顺序。未收到或看不清的图片请明确指出，不要猜测。\n\n---\n\n${sections.join('\n\n---\n\n')}`,files};
+export type ExportTemplate = {id:string;name:string;body:string;metadata:boolean;references:boolean;numberImages:boolean};
+export const exportTemplates:ExportTemplate[] = [
+ {id:'source',name:'原文',body:'{{content}}',metadata:false,references:false,numberImages:false},
+ {id:'materials',name:'图文资料',body:'{{content}}\n\n{{image_map}}',metadata:false,references:false,numberImages:false},
+ {id:'discussion',name:'讨论分析',body:'请根据以下资料进行分析：\n\n{{content}}\n\n{{image_map}}',metadata:false,references:false,numberImages:false},
+ {id:'engineering',name:'工程任务',body:'请根据以下内容实施修改，并说明验证结果：\n\n{{content}}\n\n{{image_map}}',metadata:false,references:true,numberImages:false}
+];
+export function compose(project:string,entries:Entry[],all:Entry[]=entries,batch='PREVIEW',template:ExportTemplate=exportTemplates[0]){
+ const records=template.references?expandEntries(entries,all):entries;
+ const files:{source:string;name:string;record:number;picture:number;attachmentId:string;mark?:{record:number;picture:number;batch:string}}[]=[];
+ const imageMap:string[]=[];
+ const content=records.map((e,i)=>{
+  e.attachments.forEach((a,j)=>{
+   let name=`${batch}-R${i+1}-P${j+1}-${bundleName(a,files.length)}`;
+   if(template.numberImages)name=name.replace(/\.[^.]+$/,'.png');
+   files.push({source:a.path,name,record:i+1,picture:j+1,attachmentId:a.id,...(template.numberImages?{mark:{record:i+1,picture:j+1,batch}}:{})});
+   imageMap.push(`记录 ${i+1} · 图片 ${j+1}：![${a.name.replace(/[\[\]\r\n]/g,' ')}](<${name}>)`);
+  });
+  return template.metadata?`## ${i+1}. ${e.type}\n\n${e.text}\n\n状态：${e.status}${e.tags.length?'\n标签：'+e.tags.join(', '):''}`:e.text;
+ }).join('\n\n');
+ const variables:Record<string,string>={content,image_map:imageMap.join('\n\n'),project,batch};
+ const rendered=template.body.replace(/\{\{\s*([^{}]*?)\s*\}\}/g,(_,key:string)=>{key=key.trim();if(!Object.hasOwn(variables,key))throw new Error(`未知模板变量：${key}`);return variables[key];});
+ return {count:records.length,text:rendered,files,manifest:{version:1,template:template.id,layout:template.body==='{{content}}'&&!template.metadata?'records':'template',batch,records:records.map((e,i)=>({id:e.id,text:e.text,files:files.filter(f=>f.record===i+1).map(({source,mark,...f})=>({...f,originalName:e.attachments[f.picture-1].name}))}))}};
 }

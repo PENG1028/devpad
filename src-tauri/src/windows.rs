@@ -53,7 +53,7 @@ pub fn focus_editor(app:tauri::AppHandle,label:String)->Result<()> {
 }
 #[tauri::command]
 pub async fn open_aux(app:tauri::AppHandle,kind:String,payload:Value)->Result<String> {
-    let (title,w,h)=match kind.as_str(){"editor"=>("写笔记 · DevPad",620.,650.),"more"=>("设置 · DevPad",520.,630.),"projects"|"filters"|"new-project"=>("项目与筛选 · DevPad",500.,600.),"delivery"=>("交给 Agent · DevPad",720.,700.),"image"=>("图片预览 · DevPad",800.,650.),_=>return Err("未知窗口".into())};
+    let (title,w,h)=match kind.as_str(){"editor"=>("写笔记 · DevPad",620.,650.),"more"=>("设置 · DevPad",520.,630.),"agents"=>("Agent 与 MCP",620.,700.),"help"=>("帮助 · DevPad",560.,660.),"updates"=>("更新 · DevPad",560.,580.),"templates"=>("导出模板 · DevPad",620.,700.),"projects"|"filters"|"new-project"=>("项目与筛选 · DevPad",500.,600.),"delivery"=>("模板与完整导出 · DevPad",720.,700.),"image"=>("图片预览 · DevPad",800.,650.),_=>return Err("未知窗口".into())};
     let entry=payload["entry"]["id"].as_str().unwrap_or("");
     // Reserve the entry while holding the registry lock, including during window startup.
     let label=if kind=="editor" {
@@ -81,6 +81,7 @@ pub fn cleanup(app:&tauri::AppHandle,label:&str){
     if let Ok(mut values)=app.state::<Windows>().payloads.lock(){values.remove(label);}
     if let Ok(mut values)=app.state::<Windows>().editors.lock(){values.remove(label);}
     if let Ok(mut exit)=app.state::<Windows>().exit.lock(){if exit.waiting.as_deref()==Some(label){*exit=ExitState::default();}}
+    let _=app.emit("drafts-changed",());
 }
 pub fn request_exit(app:&tauri::AppHandle){
     if let Ok(mut exit)=app.state::<Windows>().exit.lock(){if exit.active{return}exit.active=true;}

@@ -1,0 +1,132 @@
+name: Build and release
+on:
+  push:
+    branches: [develop]
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frontend:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm}
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui:headless
+  version:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      channel: ${{ steps.version.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - id: version
+        run: node scripts/release-version.mjs
+  build:
+    needs: [frontend, version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            platform: windows-x86_64
+            bundles: nsis
+          - os: macos-15
+            target: aarch64-apple-darwin
+            platform: darwin-aarch64
+            bundles: app,dmg
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            platform: darwin-x86_64
+            bundles: app,dmg
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x86_64
+            bundles: appimage,deb
+    runs-on: ${{ matrix.os }}
+    env:
+      DEVPAD_RELEASE_CHANNEL: ${{ needs.version.outputs.channel }}
+      DEVPAD_RELEASE_REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.target }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
+      - run: npm ci
+      - run: node scripts/release-version.mjs
+      - run: npm run build
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        with:
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - run: node tests/mcp-integration.mjs
+        env:
+          DEVPAD_TEST_TARGET: ${{ matrix.target }}
+          DEVPAD_TEST_APPIMAGE: ${{ runner.os == 'Linux' && '1' || '' }}
+      - if: runner.os == 'Windows'
+        run: ./tests/shortcut-migration.ps1
+      - if: runner.os == 'Windows'
+        run: node tests/native-product-smoke.cjs
+        env:
+          DEVPAD_TEST_EXE: src-tauri/target/${{ matrix.target }}/release/devpad.exe
+      - run: node scripts/stage-release.mjs ${{ matrix.target }} ${{ matrix.platform }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: artifacts/*
+          if-no-files-found: error
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+      - run: node scripts/update-manifest.mjs artifacts '${{ needs.version.outputs.version }}' '${{ github.repository }}' '${{ needs.version.outputs.tag }}'
+      - name: Publish complete signed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+          RELEASE_CHANNEL: ${{ needs.version.outputs.channel }}
+        run: |
+          if [ "$RELEASE_CHANNEL" = develop ]; then
+            gh release create "$RELEASE_TAG" artifacts/* --target "$GITHUB_SHA" --prerelease --latest=false --title "DevPad $RELEASE_TAG" --notes-file docs/release-notes.md
+            if ! gh release view dev-latest >/dev/null 2>&1; then
+              gh release create dev-latest --target "$GITHUB_SHA" --prerelease --latest=false --title '开发版更新入口' --notes '开发版应用使用此更新索引，安装包与签名见具体版本。'
+            fi
+            gh release upload dev-latest artifacts/latest.json --clobber
+          else
+            gh release create "$RELEASE_TAG" artifacts/* --verify-tag --latest --title "DevPad $RELEASE_TAG" --notes-file docs/release-notes.md
+          fi
