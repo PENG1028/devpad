@@ -3,6 +3,10 @@
   "windows": [
     "main",
     "more",
+    "help",
+    "updates",
+    "templates",
+    "agents",
     "organizer",
     "bubble",
     "editor-*",

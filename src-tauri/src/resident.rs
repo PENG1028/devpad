@@ -72,7 +72,8 @@ fn startup_command()->Result<String>{let exe=std::env::current_exe().map_err(err
 fn approval_key()->String{if std::env::var("DEVPAD_TEST_STARTUP").as_deref()==Ok("1"){"Software\\DevPad\\TestStartupApproval".into()}else{"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run".into()}}
 
 #[tauri::command]
-pub fn startup_enabled()->Result<bool>{
+pub fn startup_enabled(app:tauri::AppHandle)->Result<bool>{
+    #[cfg(windows)]let _=&app;
     #[cfg(windows)]{
         use winreg::{RegKey,enums::HKEY_CURRENT_USER};
         let key=match RegKey::predef(HKEY_CURRENT_USER).open_subkey(run_key()){Ok(key)=>key,Err(e) if e.kind()==std::io::ErrorKind::NotFound=>return Ok(false),Err(e)=>return Err(err(e))};
@@ -80,10 +81,10 @@ pub fn startup_enabled()->Result<bool>{
         let blocked=RegKey::predef(HKEY_CURRENT_USER).open_subkey(approval_key()).ok().and_then(|key|key.get_raw_value("DevPad").ok()).is_some_and(|value|value.bytes.first()==Some(&3));
         Ok(value==startup_command()?&&!blocked)
     }
-    #[cfg(not(windows))]{Ok(false)}
+    #[cfg(not(windows))]{use tauri_plugin_autostart::ManagerExt;app.autolaunch().is_enabled().map_err(err)}
 }
 #[tauri::command]
-pub fn set_startup(enabled:bool)->Result<bool>{
+pub fn set_startup(app:tauri::AppHandle,enabled:bool)->Result<bool>{
     #[cfg(windows)]{
         use winreg::{RegKey,enums::HKEY_CURRENT_USER};
         let (key,_)=RegKey::predef(HKEY_CURRENT_USER).create_subkey(run_key()).map_err(err)?;
@@ -91,7 +92,7 @@ pub fn set_startup(enabled:bool)->Result<bool>{
             if let Ok(approved)=RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(approval_key(),winreg::enums::KEY_SET_VALUE){match approved.delete_value("DevPad"){Ok(())=>(),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>(),Err(e)=>return Err(err(e))}}
         }
         else {match key.delete_value("DevPad"){Ok(())=>(),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>(),Err(e)=>return Err(err(e))}}
-        startup_enabled()
+        startup_enabled(app)
     }
-    #[cfg(not(windows))]{let _=enabled;Err("仅支持 Windows".into())}
+    #[cfg(not(windows))]{use tauri_plugin_autostart::ManagerExt;if enabled{app.autolaunch().enable().map_err(err)?;}else{app.autolaunch().disable().map_err(err)?;}startup_enabled(app)}
 }

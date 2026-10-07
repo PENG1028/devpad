@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use base64::Engine;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{fs, path::{Path, PathBuf}, sync::Mutex};
@@ -9,6 +9,11 @@ use tauri::Manager;
 mod docking;
 mod delivery;
 mod resident;
+mod drafts;
+mod updates;
+mod tasks;
+mod mcp;
+mod clipboard;
 use resident::{hide_to_tray,exit_app,resident_action,startup_enabled,set_startup};
 use docking::{edge_check,edge_restore,notebook_tick,notebook_config,notebook_pause,notebook_activity,notebook_collapse,bubble_status,bubble_settle};
 
@@ -52,15 +57,22 @@ fn create_project(s:tauri::State<Store>, name:String)->Result<Value>{
 fn save_entry(s:tauri::State<Store>, entry:Value)->Result<()> {
     save_record(&s,entry)
 }
-fn save_record(s:&Store,entry:Value)->Result<()> {
+fn save_record(s:&Store,mut entry:Value)->Result<()> {
     if !["Open","Done"].contains(&entry["status"].as_str().unwrap_or("")){return Err("未知记录状态".into())}
     let id=entry["id"].as_str().ok_or("缺少记录 ID")?;
     let project=entry["projectId"].as_str().ok_or("缺少项目")?;
     if !["Bug","UX","Feature","Idea","Question","Note","Draft"].contains(&entry["type"].as_str().unwrap_or("")) {return Err("未知记录类型".into())}
     for a in entry["attachments"].as_array().ok_or("附件格式错误")? {attachment_path(&s,a["path"].as_str().ok_or("附件路径错误")?)?;}
-    let db=s.db.lock().map_err(err)?;
-    if !db.query_row("SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1)",[project],|r|r.get::<_,bool>(0)).map_err(err)? {return Err("目标项目不存在，请重新选择所属项目".into());}
-    db.execute("INSERT INTO entries(id,project_id,payload) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,payload=excluded.payload",params![id,project,entry.to_string()]).map_err(err)?;Ok(())
+    let mut db=s.db.lock().map_err(err)?;
+    let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+    let id=id.to_string();let project=project.to_string();
+    let previous:Option<String>=tx.query_row("SELECT payload FROM entries WHERE id=?1",[&id],|r|r.get(0)).optional().map_err(err)?;
+    let expected=entry["revision"].as_u64().unwrap_or(0);
+    let revision=previous.as_ref().map(|raw|serde_json::from_str::<Value>(raw).map(|v|v["revision"].as_u64().unwrap_or(0))).transpose().map_err(err)?;
+    if revision.is_some_and(|current|current!=expected)||revision.is_none()&&expected!=0{return Err("笔记已被其他窗口或 agent 修改或删除。请保留当前草稿，重新打开最新内容后合并。".into());}
+    entry["revision"]=json!(revision.unwrap_or(0)+1);
+    if !tx.query_row("SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1)",[&project],|r|r.get::<_,bool>(0)).map_err(err)? {return Err("目标项目不存在，请重新选择所属项目".into());}
+    tx.execute("INSERT INTO entries(id,project_id,payload) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,payload=excluded.payload",params![id,project,entry.to_string()]).map_err(err)?;tx.commit().map_err(err)
 }
 #[tauri::command]
 fn batch(s:tauri::State<Store>, ids:Vec<String>, status:String, updated_at:String)->Result<()> {
@@ -68,7 +80,7 @@ fn batch(s:tauri::State<Store>, ids:Vec<String>, status:String, updated_at:Strin
     let mut db=s.db.lock().map_err(err)?;let tx=db.transaction().map_err(err)?;
     for id in ids {if status=="Delete"{tx.execute("DELETE FROM entries WHERE id=?1",[id]).map_err(err)?;}else{
         let raw:String=tx.query_row("SELECT payload FROM entries WHERE id=?1",[&id],|r|r.get(0)).map_err(err)?;
-        let mut v:Value=serde_json::from_str(&raw).map_err(err)?;v["status"]=json!(status);v["updatedAt"]=json!(updated_at);
+        let mut v:Value=serde_json::from_str(&raw).map_err(err)?;v["status"]=json!(status);v["updatedAt"]=json!(updated_at);v["revision"]=json!(v["revision"].as_u64().unwrap_or(0)+1);
         tx.execute("UPDATE entries SET payload=?1 WHERE id=?2",params![v.to_string(),id]).map_err(err)?;
     }} tx.commit().map_err(err)?;Ok(())
 }
@@ -88,7 +100,7 @@ fn move_records(s:&Store,ids:&[String],project:&str,updated:&str)->Result<()> {
         let raw:String=tx.query_row("SELECT payload FROM entries WHERE id=?1",[id],|r|r.get(0)).map_err(|_|"部分笔记已删除，请重新选择后移动".to_owned())?;
         let mut entry:Value=serde_json::from_str(&raw).map_err(err)?;
         if entry["projectId"]==project{continue}
-        entry["projectId"]=json!(project);entry["updatedAt"]=json!(updated);
+        entry["projectId"]=json!(project);entry["updatedAt"]=json!(updated);entry["revision"]=json!(entry["revision"].as_u64().unwrap_or(0)+1);
         tx.execute("UPDATE entries SET project_id=?1,payload=?2 WHERE id=?3",params![project,entry.to_string(),id]).map_err(err)?;
     }
     tx.commit().map_err(err)
@@ -159,11 +171,11 @@ fn export_to(s:&Store,dir:&Path,text:&str,files:&[ExportFile])->Result<()> {
     fs::write(dir.join("prompt.md"),text).map_err(err)?;Ok(())
 }
 #[tauri::command]
-async fn export_bundle(app:tauri::AppHandle,text:String,files:Vec<ExportFile>)->Result<Option<String>>{
-    let folder=rfd::AsyncFileDialog::new().set_title("选择 Agent 上下文导出目录").pick_folder().await;
+async fn export_bundle(app:tauri::AppHandle,text:String,files:Vec<ExportFile>,manifest:Option<Value>)->Result<Option<String>>{
+    let folder=rfd::AsyncFileDialog::new().set_title("选择图文资料导出目录").pick_folder().await;
     let Some(folder)=folder else{return Ok(None)};
     let dir=folder.path().join(format!("devpad-context-{}",uuid::Uuid::new_v4()));
-    tauri::async_runtime::spawn_blocking(move||{export_to(&app.state::<Store>(),&dir,&text,&files)?;Ok(Some(dir.to_string_lossy().into()))}).await.map_err(err)?
+    tauri::async_runtime::spawn_blocking(move||{export_to(&app.state::<Store>(),&dir,&text,&files)?;if let Some(manifest)=manifest{fs::write(dir.join("manifest.json"),serde_json::to_vec_pretty(&manifest).map_err(err)?).map_err(err)?;}Ok(Some(dir.to_string_lossy().into()))}).await.map_err(err)?
 }
 #[tauri::command]
 async fn copy_images(app:tauri::AppHandle,files:Vec<ExportFile>)->Result<usize>{
@@ -196,7 +208,17 @@ fn migrate_records(db:&mut Connection,root:&Path)->Result<()> {
     }
     tx.execute_batch("PRAGMA user_version=1").map_err(err)?;tx.commit().map_err(err)
 }
-fn main(){let mut context=tauri::generate_context!();if let Some(root)=std::env::var_os("DEVPAD_DATA_DIR"){use std::hash::{Hash,Hasher};let mut hash=std::collections::hash_map::DefaultHasher::new();root.hash(&mut hash);context.config_mut().identifier=format!("local.devpad.test-{:x}",hash.finish());}tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app,args,_|{if !args.iter().any(|arg|arg=="--autostart"){resident::restore(app);}})).manage(Windows::default()).manage(resident::Resident::default()).manage(Mutex::new(docking::Dock::default())).on_window_event(|window,event|{
+fn initialize_database(db:&mut Connection,root:&Path)->Result<()> {
+ db.busy_timeout(std::time::Duration::from_secs(5)).map_err(err)?;
+ db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,name TEXT NOT NULL); CREATE TABLE IF NOT EXISTS entries(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS entries_project ON entries(project_id);").map_err(err)?;
+ migrate_records(db,root)?;drafts::schema(db)?;tasks::schema(db)?;
+ db.execute("INSERT INTO projects(id,name) SELECT 'inbox','收件箱' WHERE NOT EXISTS(SELECT 1 FROM projects)",[]).map_err(err)?;Ok(())
+}
+fn main(){if std::env::args().any(|arg|arg=="--mcp"){if let Err(error)=mcp::run(){eprintln!("DevPad MCP: {error}");std::process::exit(1);}return;}let mut context=tauri::generate_context!();if let Some(root)=std::env::var_os("DEVPAD_DATA_DIR"){use std::hash::{Hash,Hasher};let mut hash=std::collections::hash_map::DefaultHasher::new();root.hash(&mut hash);context.config_mut().identifier=format!("local.devpad.test-{:x}",hash.finish());}tauri::Builder::default()
+.plugin(tauri_plugin_updater::Builder::new().build())
+.plugin(tauri_plugin_process::init())
+.plugin(tauri_plugin_autostart::Builder::new().args(["--autostart"]).build())
+.plugin(tauri_plugin_single_instance::init(|app,args,_|{if !args.iter().any(|arg|arg=="--autostart"){resident::restore(app);}})).manage(updates::Updates::default()).manage(Windows::default()).manage(resident::Resident::default()).manage(Mutex::new(docking::Dock::default())).on_window_event(|window,event|{
     if let tauri::WindowEvent::CloseRequested{api,..}=event {if window.label()=="main"{api.prevent_close();let app=window.app_handle().clone();tauri::async_runtime::spawn(async move {let _=hide_to_tray(app).await;});}}
     if matches!(event,tauri::WindowEvent::Destroyed){
         windows::cleanup(window.app_handle(),window.label());
@@ -207,15 +229,16 @@ fn main(){let mut context=tauri::generate_context!();if let Some(root)=std::env:
     resident::setup(app)?;
     let root=std::env::var_os("DEVPAD_DATA_DIR").map(PathBuf::from).unwrap_or(app.path().app_data_dir()?);fs::create_dir_all(root.join("attachments"))?; app.asset_protocol_scope().allow_directory(root.join("attachments"), true)?;
     let mut db=Connection::open(root.join("devpad.sqlite"))?;
-    db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,name TEXT NOT NULL); CREATE TABLE IF NOT EXISTS entries(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS entries_project ON entries(project_id);")?;
-    migrate_records(&mut db,&root).map_err(std::io::Error::other)?;
-    app.manage(Store{db:Mutex::new(db),root});docking::start_clock(app.handle().clone());Ok(())
-}).invoke_handler(tauri::generate_handler![load,create_project,save_entry,batch,move_entries,add_image,paste_clipboard,copy_text,copy_images,export_bundle,open_aux,window_payload,editor_dirty,editor_release,editor_windows,focus_editor,exit_decision,window_ready,docking::notebook_surface_ready,docking::notebook_drag,edge_check,edge_restore,return_to_list,hide_to_tray,exit_app,resident_action,startup_enabled,set_startup,notebook_tick,notebook_config,notebook_pause,notebook_activity,notebook_collapse,bubble_status,bubble_settle]).run(context).expect("DevPad 启动失败");}
+    initialize_database(&mut db,&root).map_err(std::io::Error::other)?;
+    app.manage(Store{db:Mutex::new(db),root});
+    let handle=app.handle().clone();std::thread::spawn(move||{use tauri::Emitter;let mut previous=0_i64;loop{std::thread::sleep(std::time::Duration::from_secs(2));let s=handle.state::<Store>();if let Ok(db)=s.db.lock(){if let Ok(version)=db.query_row("PRAGMA data_version",[],|r|r.get::<_,i64>(0)){if previous!=0&&version!=previous{let _=handle.emit("db-changed",());}previous=version;}};}});
+    docking::start_clock(app.handle().clone());Ok(())
+}).invoke_handler(tauri::generate_handler![load,create_project,save_entry,batch,move_entries,add_image,paste_clipboard,copy_text,copy_images,export_bundle,open_aux,window_payload,editor_dirty,editor_release,editor_windows,focus_editor,exit_decision,window_ready,docking::notebook_surface_ready,docking::notebook_drag,edge_check,edge_restore,return_to_list,hide_to_tray,exit_app,resident_action,startup_enabled,set_startup,notebook_tick,notebook_config,notebook_pause,notebook_activity,notebook_collapse,bubble_status,bubble_settle,drafts::save_draft,drafts::list_drafts,drafts::discard_draft,updates::update_info,updates::set_update_channel,updates::check_update,updates::install_update,tasks::publish_task,tasks::list_tasks,tasks::cancel_task,tasks::mcp_config,clipboard::copy_bundle]).run(context).expect("DevPad 启动失败");}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn schema(db:&Connection){db.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT); CREATE TABLE entries(id TEXT PRIMARY KEY,project_id TEXT REFERENCES projects(id),payload TEXT); INSERT INTO projects VALUES('a','A'),('b','B');").unwrap();}
+    pub(super) fn schema(db:&Connection){db.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT); CREATE TABLE entries(id TEXT PRIMARY KEY,project_id TEXT REFERENCES projects(id),payload TEXT); INSERT INTO projects VALUES('a','A'),('b','B');").unwrap();}
     #[test]
     fn batch_move_is_atomic_and_preserves_records(){
         let s=store();schema(&s.db.lock().unwrap());
@@ -248,11 +271,11 @@ mod tests {
     fn moving_note_updates_both_project_fields_and_rejects_invalid_save(){
         let s=store();schema(&s.db.lock().unwrap());
         let mut note=json!({"id":"one","projectId":"a","type":"Note","status":"Open","text":"移动","attachments":[],"references":["ref"]});save_record(&s,note.clone()).unwrap();
-        note["projectId"]=json!("b");save_record(&s,note.clone()).unwrap();
+        note["revision"]=json!(1);note["projectId"]=json!("b");save_record(&s,note.clone()).unwrap();
         note["projectId"]=json!("missing");assert!(save_record(&s,note.clone()).is_err());note["status"]=json!("Ignore");assert!(save_record(&s,note).is_err());
         let (project,raw):(String,String)=s.db.lock().unwrap().query_row("SELECT project_id,payload FROM entries",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();assert_eq!(project,"b");assert_eq!(serde_json::from_str::<Value>(&raw).unwrap()["projectId"],"b");fs::remove_dir_all(s.root).unwrap();
     }
-    fn store()->Store {
+    pub(super) fn store()->Store {
         let root=std::env::temp_dir().join(format!("devpad-test-{}",uuid::Uuid::new_v4()));
         fs::create_dir_all(root.join("attachments")).unwrap();
         Store{db:Mutex::new(Connection::open_in_memory().unwrap()),root}

@@ -46,9 +46,16 @@ fn header(width:u32,height:u32,font:u32,label:&str)->Result<RgbaImage,String>{
     }
 }
 #[cfg(not(windows))]
-fn header(_:u32,_:u32,_:u32,_:&str)->Result<RgbaImage,String>{Err("此平台暂不支持交付图片标注".into())}
+fn header(width:u32,height:u32,font:u32,label:&str)->Result<RgbaImage,String>{
+    use font8x8::UnicodeFonts;
+    let text=label.replace("记录 ","R").replace(" · 图片 "," P");
+    let scale=(font/8).min((width-28)/(text.len() as u32*8)).max(1);
+    let mut image=RgbaImage::from_pixel(width,height,Rgba([255,255,255,255]));
+    for (index,c) in text.chars().enumerate(){if let Some(glyph)=font8x8::BASIC_FONTS.get(c){for (y,row) in glyph.iter().enumerate(){for x in 0..8{if row&(1<<x)!=0{for sy in 0..scale{for sx in 0..scale{let px=14+(index as u32*8+x)*scale+sx;let py=12+y as u32*scale+sy;if px<width&&py<height{image.put_pixel(px,py,Rgba([56,56,56,255]));}}}}}}}}
+    Ok(image)
+}
 
-#[cfg(all(test,windows))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use image::GenericImageView;
