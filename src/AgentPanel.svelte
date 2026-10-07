@@ -8,7 +8,7 @@
  const names:Record<string,string>={available:'可领取',claimed:'处理中',completed:'已完成',cancelled:'已撤回'};
  async function refresh(){try{tasks=await invoke<Task[]>('list_tasks');error='';}catch(e){error=String(e);}}
  async function cancel(id:string){if(!await confirm.ask('撤回后，当前 agent 的领取凭证立即失效。','撤回任务','撤回任务？','保留'))return;try{await invoke('cancel_task',{id});await refresh();}catch(e){error=String(e);}}
- onMount(()=>{let stopped=false,off:()=>void=()=>{};void refresh();void invoke('mcp_config').then(c=>config=JSON.stringify(c,null,2)).catch(e=>error=String(e));if(isTauri())void listen('db-changed',()=>void refresh()).then(f=>{if(stopped)f();else off=f;});return()=>{stopped=true;off();};});
+ onMount(()=>{let stopped=false,off:()=>void=()=>{};const timer=setInterval(()=>void refresh(),15000);void refresh();void invoke('mcp_config').then(c=>config=JSON.stringify(c,null,2)).catch(e=>error=String(e));if(isTauri())void listen('db-changed',()=>void refresh()).then(f=>{if(stopped)f();else off=f;});return()=>{stopped=true;clearInterval(timer);off();};});
 </script>
 <section aria-label="Agent 与 MCP">
  <h3>连接 Agent</h3>

@@ -6,7 +6,7 @@ fn escape(text: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
 }
-fn html(text: &str, files: &[ExportFile]) -> Result<String> {
+pub(crate) fn html(text: &str, files: &[ExportFile]) -> Result<String> {
     let mut body = format!(
         "<div><pre style=\"white-space:pre-wrap\">{}</pre>",
         escape(text)

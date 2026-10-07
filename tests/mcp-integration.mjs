@@ -3,10 +3,11 @@ import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 const target=process.env.DEVPAD_TEST_TARGET;
-const exe=process.env.DEVPAD_TEST_EXE||path.resolve('src-tauri','target',...(target?[target]:[]),'release',process.platform==='win32'?'devpad.exe':'devpad');
+let exe=process.env.DEVPAD_TEST_EXE||path.resolve('src-tauri','target',...(target?[target]:[]),'release',process.platform==='win32'?'devpad.exe':'devpad');
+if(process.env.DEVPAD_TEST_APPIMAGE==='1'){const dir=path.resolve('src-tauri','target',target,'release/bundle/appimage');exe=path.join(dir,fs.readdirSync(dir).find(n=>n.endsWith('.AppImage')));}
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'devpad-mcp-test-'));
 const clients=[];
-async function connect(){const client=new Client({name:'devpad-integration-test',version:'1.0.0'});const transport=new StdioClientTransport({command:exe,args:['--mcp'],env:{...process.env,DEVPAD_DATA_DIR:root},stderr:'pipe'});let logs='';transport.stderr?.on('data',d=>logs+=d);await client.connect(transport);clients.push(client);return client;}
+async function connect(){const client=new Client({name:'devpad-integration-test',version:'1.0.0'});const transport=new StdioClientTransport({command:exe,args:['--mcp'],env:{...process.env,DEVPAD_DATA_DIR:root,...(process.env.DEVPAD_TEST_APPIMAGE==='1'?{APPIMAGE_EXTRACT_AND_RUN:'1'}:{})},stderr:'pipe'});let logs='';transport.stderr?.on('data',d=>logs+=d);try{await client.connect(transport);}catch(error){await transport.close();throw new Error(String(error)+' '+logs.slice(-2000));}clients.push(client);return client;}
 async function call(client,name,args={}){return client.callTool({name,arguments:args});}
 const data=r=>r.structuredContent.data;
 try {
@@ -36,4 +37,4 @@ try {
  // Closing and reconnecting must retain the database, with no GUI process involved.
  await a.close();await b.close();clients.length=0;const c=await connect();assert.equal(data(await call(c,'get_note',{id:note.id})).text,'agent A 修改');
  console.log('PASS real MCP SDK: handshake, two clients, persistence, revision conflicts, task boundary, atomic claims, original image, renewal, completion, path rejection');
-}finally{await Promise.allSettled(clients.map(c=>c.close()));fs.rmSync(root,{recursive:true,force:true});}
+}finally{await Promise.allSettled(clients.map(c=>c.close()));const resolved=fs.realpathSync(root),temp=fs.realpathSync(os.tmpdir());assert.ok(resolved.startsWith(temp+path.sep)&&path.basename(resolved).startsWith('devpad-mcp-test-'));fs.rmSync(resolved,{recursive:true,force:true});}

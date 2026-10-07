@@ -194,9 +194,20 @@ pub fn cancel_task(app: tauri::AppHandle, id: String) -> Result<()> {
 }
 #[tauri::command]
 pub fn mcp_config() -> Result<Value> {
-    Ok(
-        json!({"mcpServers":{"devpad":{"command":std::env::current_exe().map_err(err)?,"args":["--mcp"]}}}),
-    )
+    let command = std::env::current_exe().map_err(err)?;
+    #[cfg(target_os = "linux")]
+    let command = match (
+        std::env::var_os("APPIMAGE").map(std::path::PathBuf::from),
+        std::env::var_os("APPDIR").map(std::path::PathBuf::from),
+    ) {
+        (Some(image), Some(dir)) if image.is_absolute() && command.starts_with(dir) => image,
+        _ => command,
+    };
+    let mut server = json!({"command":command,"args":["--mcp"]});
+    if let Some(root) = std::env::var_os("DEVPAD_DATA_DIR") {
+        server["env"] = json!({"DEVPAD_DATA_DIR":std::path::PathBuf::from(root)});
+    }
+    Ok(json!({"mcpServers":{"devpad":server}}))
 }
 
 #[cfg(test)]

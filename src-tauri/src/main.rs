@@ -190,7 +190,7 @@ async fn copy_images(app:tauri::AppHandle,files:Vec<ExportFile>)->Result<usize>{
         clipboard_win::formats::FileList.write_clipboard(&paths).map_err(err)?;
         Ok(files.len())
     }
-    #[cfg(not(target_os="windows"))]{Err("当前系统请使用导出附件包".into())}
+    #[cfg(not(target_os="windows"))]{let exported:Vec<_>=files.iter().map(|f|ExportFile{source:dir.join(&f.name).to_string_lossy().into(),name:f.name.clone(),mark:None}).collect();arboard::Clipboard::new().map_err(err)?.set_html(clipboard::html("",&exported)?,Some(String::new())).map_err(err)?;Ok(files.len())}
     }).await.map_err(err)?
 }
 fn migrate_records(db:&mut Connection,root:&Path)->Result<()> {
@@ -231,7 +231,7 @@ fn main(){if std::env::args().any(|arg|arg=="--mcp"){if let Err(error)=mcp::run(
     let mut db=Connection::open(root.join("devpad.sqlite"))?;
     initialize_database(&mut db,&root).map_err(std::io::Error::other)?;
     app.manage(Store{db:Mutex::new(db),root});
-    let handle=app.handle().clone();std::thread::spawn(move||{use tauri::Emitter;let mut previous=0_i64;loop{std::thread::sleep(std::time::Duration::from_secs(2));let s=handle.state::<Store>();if let Ok(db)=s.db.lock(){if let Ok(version)=db.query_row("PRAGMA data_version",[],|r|r.get::<_,i64>(0)){if previous!=0&&version!=previous{let _=handle.emit("db-changed",());}previous=version;}};}});
+    let handle=app.handle().clone();std::thread::spawn(move||{use tauri::Emitter;let mut previous=0_i64;loop{std::thread::sleep(std::time::Duration::from_secs(2));let s=handle.state::<Store>();if let Ok(db)=s.db.lock(){if let Ok(version)=db.query_row("PRAGMA data_version",[],|r|r.get::<_,i64>(0)){if version!=previous{let _=handle.emit("db-changed",());}previous=version;}};}});
     docking::start_clock(app.handle().clone());Ok(())
 }).invoke_handler(tauri::generate_handler![load,create_project,save_entry,batch,move_entries,add_image,paste_clipboard,copy_text,copy_images,export_bundle,open_aux,window_payload,editor_dirty,editor_release,editor_windows,focus_editor,exit_decision,window_ready,docking::notebook_surface_ready,docking::notebook_drag,edge_check,edge_restore,return_to_list,hide_to_tray,exit_app,resident_action,startup_enabled,set_startup,notebook_tick,notebook_config,notebook_pause,notebook_activity,notebook_collapse,bubble_status,bubble_settle,drafts::save_draft,drafts::list_drafts,drafts::discard_draft,updates::update_info,updates::set_update_channel,updates::check_update,updates::install_update,tasks::publish_task,tasks::list_tasks,tasks::cancel_task,tasks::mcp_config,clipboard::copy_bundle]).run(context).expect("DevPad 启动失败");}
 

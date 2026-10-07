@@ -87,6 +87,13 @@ jobs:
       - run: node tests/mcp-integration.mjs
         env:
           DEVPAD_TEST_TARGET: ${{ matrix.target }}
+          DEVPAD_TEST_APPIMAGE: ${{ runner.os == 'Linux' && '1' || '' }}
+      - if: runner.os == 'Windows'
+        run: ./tests/shortcut-migration.ps1
+      - if: runner.os == 'Windows'
+        run: node tests/native-product-smoke.cjs
+        env:
+          DEVPAD_TEST_EXE: src-tauri/target/${{ matrix.target }}/release/devpad.exe
       - run: node scripts/stage-release.mjs ${{ matrix.target }} ${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
         with:

@@ -45,7 +45,7 @@ Ctrl+N 新建，Ctrl+F 搜索，Ctrl+Enter 保存，输入框外 Ctrl+A 全选�
 }
 ```
 
-macOS 命令位于 `DevPad.app/Contents/MacOS/devpad`。Linux 推荐 `/usr/bin/devpad`（deb 安装）或将 AppImage 解包到固定位置后使用 `usr/bin/devpad`；图形 AppImage 的入口脚本并不保证透传参数，客户端应指向实际二进制。
+macOS 命令位于 `DevPad.app/Contents/MacOS/devpad`。Linux 可以指向 `/usr/bin/devpad`（deb 安装）或固定位置的 AppImage；应用内配置会使用 AppImage 本身的路径，避免引用临时挂载目录。
 
 MCP 模式不启动图形窗口，可以单独运行。协议支持 2024-11-05、2025-03-26、2025-06-18、2025-11-25 的初始化与 stdio 工具调用，不暴露网络端口。提供：
 
