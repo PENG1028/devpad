@@ -269,17 +269,26 @@ const server=http.createServer((req,res)=>{
    const trigger=document.querySelector('.project-picker'), workspace=document.querySelector('.journal-workspace');
    const pane=document.querySelector('#project-navigation');
    const position=()=>({content:workspace.getBoundingClientRect().left,edge:pane.getBoundingClientRect().right});
-   const samples=[position()];
+   const before=position();
    trigger.click();
-   const start=performance.now();
-   while(performance.now()-start<400){await new Promise(requestAnimationFrame);samples.push(position());}
-   return samples;
+   await Promise.resolve();
+   // Seek the actual CSS transition and drawer animation between their endpoints. A busy
+   // compositor can skip a captured frame even when both animations are present and correct.
+   const animations=[...workspace.getAnimations(),...pane.getAnimations()];
+   if(animations.length<2)throw Error('Missing workspace transition or drawer animation');
+   for(const animation of animations){
+    animation.pause();animation.currentTime=Number(animation.effect.getTiming().duration)/2;
+   }
+   const middle=position();
+   for(const animation of animations)animation.finish();
+   await new Promise(requestAnimationFrame);
+   return [before,middle,position()];
   });
   const opening=await sampleTravel(), closing=await sampleTravel(), full=opening.at(-1).content;
   assert.ok(full>200 && closing.at(-1).content===0);
-  for(const frames of [opening,closing]){
-   assert.ok(frames.some(s=>s.content>2 && s.content<full-2),'workspace must move on both opening and closing');
-   assert.ok(frames.some(s=>s.edge>2 && s.edge<full-2),'drawer must move on both opening and closing');
+  for(const [,middle] of [opening,closing]){
+   assert.ok(middle.content>2 && middle.content<full-2,'workspace must move on both opening and closing');
+   assert.ok(middle.edge>2 && middle.edge<full-2,'drawer must move on both opening and closing');
   }
   await page.evaluate(async()=>{
    const picker=document.querySelector('.project-picker');

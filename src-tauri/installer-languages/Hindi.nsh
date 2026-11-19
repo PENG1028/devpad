@@ -1,4 +1,4 @@
-﻿LangString addOrReinstall ${LANG_HINDI} "घटक जोड़ें या फिर से इंस्टॉल करें"
+LangString addOrReinstall ${LANG_HINDI} "घटक जोड़ें या फिर से इंस्टॉल करें"
 LangString alreadyInstalled ${LANG_HINDI} "पहले से इंस्टॉल है"
 LangString alreadyInstalledLong ${LANG_HINDI} "${PRODUCTNAME} ${VERSION} पहले से इंस्टॉल है। कोई विकल्प चुनें और जारी रखने के लिए ‘आगे’ पर क्लिक करें।"
 LangString appRunning ${LANG_HINDI} "{{product_name}} चल रहा है। पहले इसे बंद करें, फिर से कोशिश करें।"

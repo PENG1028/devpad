@@ -35,7 +35,8 @@ const installer=JSON.parse(read('src-tauri/tauri.conf.json')).bundle.windows.nsi
 const nsis=JSON.parse(read('src-tauri/tauri.conf.json')).bundle.windows.nsis;
 function installerStrings(language){
  const name=nsis.customLanguageFiles[language];
- const text=read('src-tauri/'+name).replace(/^\uFEFF/,'');
+ const text=read('src-tauri/'+name);
+ if(text.startsWith('\uFEFF'))problem(name,'store as UTF-8 without BOM; the Windows bundler inserts it');
  const strings=new Map();
  for(const line of text.split(/\r?\n/)){
   if(!line.trim()||line.trim().startsWith(';'))continue;
