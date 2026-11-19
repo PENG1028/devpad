@@ -1,6 +1,6 @@
 [package]
 name = "devpad"
-version = "0.7.0-dev.0"
+version = "0.7.0-dev.4"
 edition = "2021"
 license = "PolyForm-Noncommercial-1.0.0"
 
@@ -8,6 +8,7 @@ license = "PolyForm-Noncommercial-1.0.0"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+sys-locale = "0.3.2"
 tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }

@@ -1,9 +1,28 @@
 use crate::{docking, err, Result, Windows};
+use crate::locale::{self, Language};
 use std::sync::{atomic::{AtomicBool, Ordering}, Mutex};
 use tauri::{Emitter, Manager, menu::{Menu, MenuItem}, tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState}};
 
 #[derive(Default)]
 pub struct Resident { pub hidden: AtomicBool, pub visible_before_hide: Mutex<Vec<String>> }
+
+struct TrayMenu { open: MenuItem<tauri::Wry>, exit: MenuItem<tauri::Wry> }
+
+fn open_label(language: Language) -> &'static str { language.text("打开 DevPad") }
+fn exit_label(language: Language) -> &'static str { language.text("退出 DevPad") }
+fn tooltip(language: Language) -> &'static str {
+    language.text("DevPad · 点击打开，右键退出")
+}
+
+pub fn localize(app: &tauri::AppHandle, language: Language) -> tauri::Result<()> {
+    let menu = app.state::<TrayMenu>();
+    menu.open.set_text(open_label(language))?;
+    menu.exit.set_text(exit_label(language))?;
+    if let Some(tray) = app.tray_by_id("devpad") {
+        tray.set_tooltip(Some(tooltip(language)))?;
+    }
+    Ok(())
+}
 
 pub fn set_application_id(id:&str)->Result<()> {
     #[cfg(windows)]{
@@ -49,25 +68,27 @@ pub fn request_exit(app:&tauri::AppHandle) {crate::windows::request_exit(app);}
 #[tauri::command]
 pub fn exit_app(app:tauri::AppHandle,discard:bool)->Result<()> {
     let _=discard;
-    if app.state::<Windows>().editors.lock().map_err(err)?.values().any(|e|e.dirty||e.busy){return Err("请先处理所有未保存的笔记".into());}
+    if app.state::<Windows>().editors.lock().map_err(err)?.values().any(|e|e.dirty||e.busy){return Err(locale::language(&app).text("请先处理所有未保存的笔记").into());}
     app.exit(0);Ok(())
 }
 
 #[tauri::command]
 pub fn resident_action(app:tauri::AppHandle,action:String)->Result<()> {
-    match action.as_str(){"open"=>restore(&app),"exit"=>request_exit(&app),_=>return Err("未知托盘操作".into())}Ok(())
+    match action.as_str(){"open"=>restore(&app),"exit"=>request_exit(&app),_=>return Err(locale::language(&app).text("未知托盘操作").into())}Ok(())
 }
 
 pub fn setup(app:&tauri::App)->std::result::Result<(),Box<dyn std::error::Error>> {
-    let open=MenuItem::with_id(app,"open","打开 DevPad",true,None::<&str>)?;
-    let exit=MenuItem::with_id(app,"exit","退出 DevPad",true,None::<&str>)?;
+    let language=locale::language(app.handle());
+    let open=MenuItem::with_id(app,"open",open_label(language),true,None::<&str>)?;
+    let exit=MenuItem::with_id(app,"exit",exit_label(language),true,None::<&str>)?;
     let menu=Menu::with_items(app,&[&open,&exit])?;
     let icon=tauri::include_image!("icons/32x32.png");
-    TrayIconBuilder::with_id("devpad").icon(icon).tooltip("DevPad · 点击打开，右键退出")
+    TrayIconBuilder::with_id("devpad").icon(icon).tooltip(tooltip(language))
         .menu(&menu).show_menu_on_left_click(false)
         .on_menu_event(|app,event|{let _=resident_action(app.clone(),event.id.as_ref().to_owned());})
         .on_tray_icon_event(|tray,event|{if matches!(event,TrayIconEvent::Click{button:MouseButton::Left,button_state:MouseButtonState::Up,..}){restore(tray.app_handle());}})
         .build(app)?;
+    app.manage(TrayMenu { open, exit });
     Ok(())
 }
 
@@ -78,19 +99,18 @@ fn run_key()->String {
     "Software\\Microsoft\\Windows\\CurrentVersion\\Run".into()
 }
 #[cfg(windows)]
-fn startup_command()->Result<String>{let exe=std::env::current_exe().map_err(err)?;let command=format!("\"{}\" --autostart",exe.display());if command.chars().count()>260{return Err("程序路径过长，请移到更短的固定目录后开启".into());}Ok(command)}
+fn startup_command(app:&tauri::AppHandle)->Result<String>{let exe=std::env::current_exe().map_err(err)?;let command=format!("\"{}\" --autostart",exe.display());if command.chars().count()>260{return Err(locale::language(app).text("程序路径过长，请移到更短的固定目录后开启").into());}Ok(command)}
 #[cfg(windows)]
 fn approval_key()->String{if std::env::var("DEVPAD_TEST_STARTUP").as_deref()==Ok("1"){"Software\\DevPad\\TestStartupApproval".into()}else{"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run".into()}}
 
 #[tauri::command]
 pub fn startup_enabled(app:tauri::AppHandle)->Result<bool>{
-    #[cfg(windows)]let _=&app;
     #[cfg(windows)]{
         use winreg::{RegKey,enums::HKEY_CURRENT_USER};
         let key=match RegKey::predef(HKEY_CURRENT_USER).open_subkey(run_key()){Ok(key)=>key,Err(e) if e.kind()==std::io::ErrorKind::NotFound=>return Ok(false),Err(e)=>return Err(err(e))};
         let value=match key.get_value::<String,_>("DevPad"){Ok(value)=>value,Err(e) if e.kind()==std::io::ErrorKind::NotFound=>return Ok(false),Err(e)=>return Err(err(e))};
         let blocked=RegKey::predef(HKEY_CURRENT_USER).open_subkey(approval_key()).ok().and_then(|key|key.get_raw_value("DevPad").ok()).is_some_and(|value|value.bytes.first()==Some(&3));
-        Ok(value==startup_command()?&&!blocked)
+        Ok(value==startup_command(&app)?&&!blocked)
     }
     #[cfg(not(windows))]{use tauri_plugin_autostart::ManagerExt;app.autolaunch().is_enabled().map_err(err)}
 }
@@ -99,7 +119,7 @@ pub fn set_startup(app:tauri::AppHandle,enabled:bool)->Result<bool>{
     #[cfg(windows)]{
         use winreg::{RegKey,enums::HKEY_CURRENT_USER};
         let (key,_)=RegKey::predef(HKEY_CURRENT_USER).create_subkey(run_key()).map_err(err)?;
-        if enabled {key.set_value("DevPad",&startup_command()?).map_err(err)?;
+        if enabled {key.set_value("DevPad",&startup_command(&app)?).map_err(err)?;
             if let Ok(approved)=RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(approval_key(),winreg::enums::KEY_SET_VALUE){match approved.delete_value("DevPad"){Ok(())=>(),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>(),Err(e)=>return Err(err(e))}}
         }
         else {match key.delete_value("DevPad"){Ok(())=>(),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>(),Err(e)=>return Err(err(e))}}

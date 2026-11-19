@@ -5,10 +5,14 @@ import Bubble from './Bubble.svelte';
 import './style.css';
 import './refinement.css';
 import './isolation.css';
+import './interaction.css';
 import { applyTheme } from './theme';
+import { languageReady } from './i18n';
 applyTheme();
 const kind=new URLSearchParams(location.search).get('window')||'main';
 const target=document.getElementById('app')!;
-if(kind==='bubble')mount(Bubble,{target});
-else if(kind==='main'){document.documentElement.classList.add('notebook-document');mount(NotebookSurface,{target});}
-else mount(App,{target});
+void languageReady.then(()=>{
+ if(kind==='bubble')mount(Bubble,{target});
+ else if(kind==='main'){document.documentElement.classList.add('notebook-document');mount(NotebookSurface,{target});}
+ else mount(App,{target});
+});

@@ -1,0 +1,45 @@
+{
+  "copyTarget": {
+    "x": 778.5,
+    "y": 177,
+    "width": 20,
+    "height": 28
+  },
+  "copyMenuAfterTab": 1,
+  "tabFocus": "复制图片",
+  "quickMenuOpened": 1,
+  "selectionAfterMenuEscape": 0,
+  "selectedOrderPreview": "记录想法 0\n完整保留正文\n\n记录想法 1\n完整保留正文",
+  "batchButtons": [
+    "全选",
+    "清空",
+    "按模板复制",
+    "复制图片",
+    "复制原文",
+    "复制图文",
+    "完整导出",
+    "发布任务",
+    "移动项目",
+    "删除"
+  ],
+  "compact": {
+    "toolbar": {
+      "x": 16,
+      "y": 214,
+      "width": 368,
+      "height": 100
+    },
+    "list": {
+      "x": 0,
+      "y": 86,
+      "width": 400,
+      "height": 122
+    }
+  },
+  "copyAttemptsBeforeRetry": 1,
+  "copyAttemptsAfterRetry": 1,
+  "editorAfterCmdN": 0,
+  "editorAfterCtrlN": 1,
+  "editorFields": "所属项目\nDevPad\n类型\n笔记\n标签",
+  "errors": []
+}

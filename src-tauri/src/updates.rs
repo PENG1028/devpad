@@ -1,4 +1,5 @@
 use crate::{drafts, err, Result, Store};
+use crate::locale::{self, Language};
 use serde_json::{json, Value};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -21,7 +22,7 @@ pub fn channel(app: &tauri::AppHandle) -> String {
         .filter(|c| ["develop", "stable"].contains(&c.as_str()))
         .unwrap_or_else(|| env!("DEVPAD_RELEASE_CHANNEL").into())
 }
-pub fn endpoint(repository: &str, channel: &str) -> Result<String> {
+fn endpoint(repository: &str, channel: &str, language: Language) -> Result<String> {
     let parts: Vec<_> = repository.split('/').collect();
     if parts.len() != 2
         || parts.iter().any(|p| {
@@ -31,7 +32,7 @@ pub fn endpoint(repository: &str, channel: &str) -> Result<String> {
                     .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
         })
     {
-        return Err("更新仓库配置无效".into());
+        return Err(language.text("更新仓库配置无效").into());
     }
     match channel {
         "develop" => Ok(format!(
@@ -40,7 +41,7 @@ pub fn endpoint(repository: &str, channel: &str) -> Result<String> {
         "stable" => Ok(format!(
             "https://github.com/{repository}/releases/latest/download/latest.json"
         )),
-        _ => Err("未知更新通道".into()),
+        _ => Err(language.text("未知更新通道").into()),
     }
 }
 #[tauri::command]
@@ -49,9 +50,10 @@ pub fn update_info(app: tauri::AppHandle) -> Value {
 }
 #[tauri::command]
 pub fn set_update_channel(app: tauri::AppHandle, channel: String) -> Result<()> {
-    endpoint(env!("DEVPAD_RELEASE_REPOSITORY"), &channel)?;
+    let language = locale::language(&app);
+    endpoint(env!("DEVPAD_RELEASE_REPOSITORY"), &channel, language)?;
     if app.state::<Updates>().working.load(Ordering::SeqCst) {
-        return Err("更新正在进行，请稍后切换通道".into());
+        return Err(language.text("更新正在进行，请稍后切换通道").into());
     }
     let s = app.state::<Store>();
     std::fs::write(
@@ -64,13 +66,14 @@ pub fn set_update_channel(app: tauri::AppHandle, channel: String) -> Result<()> 
 }
 #[tauri::command]
 pub async fn check_update(app: tauri::AppHandle) -> Result<Option<Value>> {
+    let language = locale::language(&app);
     let state = app.state::<Updates>();
     if state.working.swap(true, Ordering::SeqCst) {
-        return Err("正在检查或安装更新".into());
+        return Err(language.text("正在检查或安装更新").into());
     }
     let result = async {
         *state.pending.lock().map_err(err)? = None;
-        let url = endpoint(env!("DEVPAD_RELEASE_REPOSITORY"), &channel(&app))?;
+        let url = endpoint(env!("DEVPAD_RELEASE_REPOSITORY"), &channel(&app), language)?;
         let update = app
             .updater_builder()
             .endpoints(vec![url.parse().map_err(err)?])
@@ -80,7 +83,7 @@ pub async fn check_update(app: tauri::AppHandle) -> Result<Option<Value>> {
             .map_err(err)?
             .check()
             .await
-            .map_err(|e| format!("检查更新失败：{e}"))?;
+            .map_err(|e| format!("{}{e}", language.text("检查更新失败：")))?;
         let info = update.as_ref().map(
             |u| json!({"version":u.version,"notes":u.body,"date":u.date.map(|d|d.to_string())}),
         );
@@ -109,9 +112,10 @@ fn backup(app: &tauri::AppHandle) -> Result<()> {
 }
 #[tauri::command]
 pub async fn install_update(app: tauri::AppHandle) -> Result<()> {
+    let language = locale::language(&app);
     let state = app.state::<Updates>();
     if state.working.swap(true, Ordering::SeqCst) {
-        return Err("更新正在进行".into());
+        return Err(language.text("更新正在进行").into());
     }
     let result = async {
         let update = state
@@ -119,8 +123,8 @@ pub async fn install_update(app: tauri::AppHandle) -> Result<()> {
             .lock()
             .map_err(err)?
             .clone()
-            .ok_or("请先检查更新")?;
-        let _mcp_guard = crate::mcp::update_lock(&app.state::<Store>().root)?;
+            .ok_or(language.text("请先检查更新"))?;
+        let _mcp_guard = crate::mcp::update_lock(&app.state::<Store>().root, language)?;
         app.emit("prepare-update", ()).map_err(err)?;
         // Give editors a chance to flush; check fingerprints again after the download.
         tauri::async_runtime::spawn_blocking(|| {
@@ -143,14 +147,14 @@ pub async fn install_update(app: tauri::AppHandle) -> Result<()> {
                 || {},
             )
             .await
-            .map_err(|e| format!("下载或验证更新失败：{e}"))?;
+            .map_err(|e| format!("{}{e}", language.text("下载或验证更新失败：")))?;
         drafts::ready_for_update(&app)?;
         // Persisted drafts are recoverable after restart. Freeze editors for the final backup/install.
         app.emit("update-installing", ()).map_err(err)?;
         backup(&app)?;
         update
             .install(bytes)
-            .map_err(|e| format!("安装更新失败：{e}"))?;
+            .map_err(|e| format!("{}{e}", language.text("安装更新失败：")))?;
         #[cfg(not(windows))]
         app.restart();
         Ok(())
@@ -165,15 +169,16 @@ pub async fn install_update(app: tauri::AppHandle) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::Language;
     #[test]
     fn channels_are_distinct_and_reject_arbitrary_endpoints() {
-        assert!(super::endpoint("PENG1028/devpad", "develop")
+        assert!(super::endpoint("PENG1028/devpad", "develop", Language::ENGLISH)
             .unwrap()
             .contains("dev-latest"));
-        assert!(super::endpoint("PENG1028/devpad", "stable")
+        assert!(super::endpoint("PENG1028/devpad", "stable", Language::ENGLISH)
             .unwrap()
             .contains("releases/latest/"));
-        assert!(super::endpoint("evil/../repo", "stable").is_err());
-        assert!(super::endpoint("PENG1028/devpad", "unknown").is_err());
+        assert!(super::endpoint("evil/../repo", "stable", Language::ENGLISH).is_err());
+        assert!(super::endpoint("PENG1028/devpad", "unknown", Language::ENGLISH).is_err());
     }
 }

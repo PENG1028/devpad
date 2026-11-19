@@ -21,8 +21,13 @@ export function sourceChanged(session:DeliverySession,entries:Entry[]):boolean{
  return session.records.some(old=>{const current=entries.find(e=>e.id===old.id);if(!current)return true;const {updatedAt:a,...before}=old;const {updatedAt:b,...after}=current;return JSON.stringify(before)!==JSON.stringify(after);}) || session.records.some(e=>e.references.some(id=>!session.records.some(r=>r.id===id)&&entries.some(r=>r.id===id)));
 }
 export function tagsOf(text:string):string[]{return [...new Set([...text.matchAll(/#([\p{L}\p{N}_-]+)/gu)].map(x=>x[1]))];}
-export function bundleName(a:Attachment,index:number){
- const stem=a.name.replace(/\.[^.]+$/,'').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[ .]+$/,'').slice(0,40)||'图片';
+export type TranslateMessage = (message:string, values?:Record<string,string|number>) => string;
+export const formatMessage:TranslateMessage = (message, values) => {
+ if(!values)return message;
+ return message.replace(/(?<!\{)\{(\w+)\}(?!\})/g,(token,key:string)=>Object.hasOwn(values,key)?String(values[key]):token);
+};
+export function bundleName(a:Attachment,index:number,translate:TranslateMessage=formatMessage){
+ const stem=a.name.replace(/\.[^.]+$/,'').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[ .]+$/,'').slice(0,40)||translate('图片');
  const extension=a.path.split('.').pop()?.toLowerCase();const ext=['png','jpg','jpeg','webp'].includes(extension||'')?extension:'png';
  return `${String(index+1).padStart(3,'0')}-${stem}.${ext}`;
 }
@@ -33,20 +38,34 @@ export const exportTemplates:ExportTemplate[] = [
  {id:'discussion',name:'讨论分析',body:'请根据以下资料进行分析：\n\n{{content}}\n\n{{image_map}}',metadata:false,references:false,numberImages:false},
  {id:'engineering',name:'工程任务',body:'请根据以下内容实施修改，并说明验证结果：\n\n{{content}}\n\n{{image_map}}',metadata:false,references:true,numberImages:false}
 ];
-export function compose(project:string,entries:Entry[],all:Entry[]=entries,batch='PREVIEW',template:ExportTemplate=exportTemplates[0]){
+export function compose(project:string,entries:Entry[],all:Entry[]=entries,batch='PREVIEW',template:ExportTemplate=exportTemplates[0],translate:TranslateMessage=formatMessage){
  const records=template.references?expandEntries(entries,all):entries;
  const files:{source:string;name:string;record:number;picture:number;attachmentId:string;mark?:{record:number;picture:number;batch:string}}[]=[];
  const imageMap:string[]=[];
  const content=records.map((e,i)=>{
   e.attachments.forEach((a,j)=>{
-   let name=`${batch}-R${i+1}-P${j+1}-${bundleName(a,files.length)}`;
+   const basename=bundleName(a,files.length,translate);
+   let name=batch?`${batch}-R${i+1}-P${j+1}-${basename}`:basename;
    if(template.numberImages)name=name.replace(/\.[^.]+$/,'.png');
    files.push({source:a.path,name,record:i+1,picture:j+1,attachmentId:a.id,...(template.numberImages?{mark:{record:i+1,picture:j+1,batch}}:{})});
-   imageMap.push(`记录 ${i+1} · 图片 ${j+1}：![${a.name.replace(/[\[\]\r\n]/g,' ')}](<${name}>)`);
+   const image=`![${a.name.replace(/[\[\]\r\n]/g,' ')}](<${name}>)`;
+   imageMap.push(translate('记录 {record} · 图片 {picture}：{image}',{record:i+1,picture:j+1,image}));
   });
-  return template.metadata?`## ${i+1}. ${e.type}\n\n${e.text}\n\n状态：${e.status}${e.tags.length?'\n标签：'+e.tags.join(', '):''}`:e.text;
+  if(!template.metadata)return e.text;
+  const status=translate('状态：{status}',{status:e.status});
+  const tags=e.tags.length?'\n'+translate('标签：{tags}',{tags:e.tags.join(', ')}):'';
+  return `## ${i+1}. ${e.type}\n\n${e.text}\n\n${status}${tags}`;
  }).join('\n\n');
  const variables:Record<string,string>={content,image_map:imageMap.join('\n\n'),project,batch};
- const rendered=template.body.replace(/\{\{\s*([^{}]*?)\s*\}\}/g,(_,key:string)=>{key=key.trim();if(!Object.hasOwn(variables,key))throw new Error(`未知模板变量：${key}`);return variables[key];});
+ const rendered=template.body.replace(/\{\{\s*([^{}]*?)\s*\}\}/g,(_,key:string)=>{key=key.trim();if(!Object.hasOwn(variables,key))throw new Error(translate('未知模板变量：{key}',{key}));return variables[key];});
  return {count:records.length,text:rendered,files,manifest:{version:1,template:template.id,layout:template.body==='{{content}}'&&!template.metadata?'records':'template',batch,records:records.map((e,i)=>({id:e.id,text:e.text,files:files.filter(f=>f.record===i+1).map(({source,mark,...f})=>({...f,originalName:e.attachments[f.picture-1].name}))}))}};
+}
+
+export function originalOutput(entries:Entry[],translate:TranslateMessage=formatMessage){
+ const output=compose('',entries,entries,'',undefined,translate);
+ const markdown=output.manifest.records.map(record=>[
+  record.text,
+  ...record.files.map(file=>`![${translate('图片')}](<${encodeURIComponent(file.name)}>)`),
+ ].filter(Boolean).join('\n\n')).join('\n\n');
+ return {...output,markdown,manifest:{...output.manifest,kind:'journal'}};
 }
