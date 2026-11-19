@@ -7,13 +7,16 @@ try {
  $shell=New-Object -ComObject WScript.Shell
  $legacy=$shell.CreateShortcut((Join-Path $links 'DevPad.lnk'));$legacy.TargetPath=Join-Path $testRoot 'DevPad-0.6.5.exe';$legacy.Arguments='--autostart';$legacy.Save()
  $other=$shell.CreateShortcut((Join-Path $links 'Other.lnk'));$other.TargetPath=Join-Path $testRoot 'Other-0.6.5.exe';$other.Save()
+ $fixed=$shell.CreateShortcut((Join-Path $links 'DevPad previous.lnk'))
+ $fixed.TargetPath=Join-Path $testRoot 'old/DevPad/devpad.exe';$fixed.Save()
  $backup=Join-Path $testRoot 'backups'
  & "$PSScriptRoot/../scripts/migrate-shortcuts.ps1" -TargetExe $target -SearchRoots @($links) -BackupRoot $backup
  & "$PSScriptRoot/../scripts/migrate-shortcuts.ps1" -TargetExe $target -SearchRoots @($links) -BackupRoot $backup
  $actual=$shell.CreateShortcut((Join-Path $links 'DevPad.lnk'))
  if ($actual.TargetPath -ne $target -or $actual.Arguments -ne '--autostart') { throw 'Legacy shortcut or arguments were not preserved' }
  if ($shell.CreateShortcut((Join-Path $links 'Other.lnk')).TargetPath -notlike '*Other-0.6.5.exe') { throw 'Unrelated shortcut changed' }
- if (@(Get-ChildItem -LiteralPath $backup -File).Count -ne 1) { throw 'Migration is not idempotent' }
+ if ($shell.CreateShortcut((Join-Path $links 'DevPad previous.lnk')).TargetPath -ne $target) { throw 'Previous fixed install shortcut was not migrated' }
+ if (@(Get-ChildItem -LiteralPath $backup -File).Count -ne 2) { throw 'Migration is not idempotent' }
  Write-Output 'PASS isolated shortcut migration: target, arguments, unrelated links, backups, repeat update'
 }finally {
  $resolved=(Resolve-Path -LiteralPath $testRoot).Path

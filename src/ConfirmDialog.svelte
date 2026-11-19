@@ -1,4 +1,5 @@
 <script lang="ts">
+ import { t } from './i18n';
  import { tick } from 'svelte';
  import { invoke,isTauri } from '@tauri-apps/api/core';
  function pause(paused:boolean){if(isTauri())void invoke('notebook_pause',{reason:'confirm',paused});}
@@ -14,7 +15,7 @@
  }
  function finish(answer:boolean){const done=resolve;resolve=undefined;dialog.close();pause(false);done?.(answer);}
 </script>
-<dialog class="confirm-dialog" bind:this={dialog} aria-label={title} aria-describedby="confirm-description" oncancel={(event)=>{event.preventDefault();finish(false);}}>
- <div class="confirm-content"><h2>{title}</h2><p id="confirm-description">{message}</p></div>
- <div class="confirm-actions"><button onclick={()=>finish(false)}>{cancel}</button><button class="confirm-destructive" onclick={()=>finish(true)}>{accept}</button></div>
+<dialog class="confirm-dialog" bind:this={dialog} aria-label={$t(title)} aria-describedby="confirm-description" oncancel={(event)=>{event.preventDefault();finish(false);}}>
+ <div class="confirm-content"><h2>{$t(title)}</h2><p id="confirm-description">{$t(message)}</p></div>
+ <div class="confirm-actions"><button onclick={()=>finish(false)}>{$t(cancel)}</button><button class="confirm-destructive" onclick={()=>finish(true)}>{$t(accept)}</button></div>
 </dialog>

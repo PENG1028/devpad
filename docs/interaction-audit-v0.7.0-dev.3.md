@@ -2,6 +2,28 @@
 
 日期：2026-10-07。审查对象：0.7.0-dev.3，源码 e7c44d6。本文补充早先针对 0.6.5 的 PRD。
 
+## 桌面工作日志改版
+
+主窗采用单列时间线和内联输入。桌面窄窗与宽窗共用记录、搜索和多选逻辑。下面的旧三栏草图和测试数据保留为当时的研究记录。
+
+| 参考 | 落地行为 |
+| --- | --- |
+| [flomo 快速记录](https://help.flomoapp.com/basic/quick-input.html) · [快捷搜索](https://help.flomoapp.com/advance/search.html) | 一句话可直接作为一条记录，主窗中搜索正文、项目和标签。 |
+| [Drafts 快速输入](https://docs.getdrafts.com/docs/extensions/capture-window) | 展开就聚焦正文，收起保留草稿，保存后可以连续输入。 |
+| [Apple 手记](https://support.apple.com/zh-hans/guide/journal/dev153edfa89/2.0/mac/26) · [Notaday 时间线](https://docs.notaday.com/features/timeline/) | 日期是阅读层级，项目是同一条时间线的筛选。图片预览在原窗内打开。 |
+| [Raycast Notes](https://www.raycast.com/blog/raycast-notes) | 小窗使用同一套主流程，重点验收收起、展开和输入焦点。 |
+| [Bear 复制](https://bear.app/faq/copy-portions-of-notes-as-html-rtf-txt-or-markdown/) · [导出](https://bear.app/faq/export-your-notes/) | 日常逐字复制、选中图文导出和高级模板分别命名。快捷输出的范围、图片和顺序由当前选择决定。 |
+
+### 项目导航与动效 · 2026-11-19
+
+打开列表看一眼、选中项目和收起列表是三个独立动作。宽窗展开侧栏后可以直接操作右侧时间线，窄窗用同一份项目列表覆盖正文，底部「查看记录」和 Esc 均可退出。方向键浏览时保留当前项目，Enter 选中。空白输入跟随当前项目，已有草稿显示原归属并保存到原项目。[Windows 自适应导航](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/navigationview)
+
+侧栏与正文边界在 210 毫秒内同步移动。切换项目给列表一次 160 毫秒的淡入，后台刷新沿用当前列表。搜索、编辑区、图片预览和弹出菜单使用较短的过渡，减少动态效果时直接到达最终状态。[Fluent 动效原则](https://fluent2.microsoft.design/motion)
+
+单条记录和批量操作的菜单贴近触发按钮，根据可用空间向上或向下展开。Esc 关闭当前菜单并将焦点还给按钮。窄窗项目面板和图片预览使用系统对话框的焦点限制。[W3C 菜单按钮](https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/) · [W3C 模态对话框](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/)
+
+本轮在 Windows 的 Edge 和 WebKit 测试浏览器中，逐帧采样了侧栏边缘和正文起点，覆盖展开、收起、快速反向和减少动态效果。交互回归还覆盖只打开再退出、连续选项目、宽窄切换保留新项目名称、菜单键盘操作、图片焦点返回及跨项目草稿。Windows 桌面测试另用独立数据库检查重启恢复与最终写入的项目。macOS 和 Linux 的原生窗口仍需实机验收。[界面验收用例](../tests/ui-refinement-headless.cjs) · [Windows 桌面验收用例](../tests/native-product-smoke.cjs)
+
 ## 判断
 
 下一轮优先调整记录与交付的流程。日常记录需要稳定的编辑位置、明确的保存反馈、可逆的整理操作；复制需要明确内容范围、格式与顺序；Agent 协作需要随时能看见的任务状态。

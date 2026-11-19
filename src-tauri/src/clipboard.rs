@@ -1,4 +1,5 @@
 use crate::{err, ExportFile, Result, Store};
+use crate::locale::Language;
 use tauri::Manager;
 fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
@@ -6,7 +7,7 @@ fn escape(text: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
 }
-pub(crate) fn html(text: &str, files: &[ExportFile]) -> Result<String> {
+pub(crate) fn html(text: &str, files: &[ExportFile], language: Language) -> Result<String> {
     let mut body = format!(
         "<div><pre style=\"white-space:pre-wrap\">{}</pre>",
         escape(text)
@@ -16,10 +17,10 @@ pub(crate) fn html(text: &str, files: &[ExportFile]) -> Result<String> {
         let path = std::fs::canonicalize(&file.source).map_err(err)?;
         total += std::fs::metadata(&path).map_err(err)?.len();
         if total > 75 * 1024 * 1024 {
-            return Err("图文复制总量超过 75 MB，请使用完整导出或 MCP".into());
+            return Err(language.text("图文复制总量超过 75 MB，请使用完整导出或 MCP").into());
         }
         // Files are copied into a durable local package before clipboard publication.
-        let url = tauri::Url::from_file_path(&path).map_err(|_| "图片路径无法转换".to_string())?;
+        let url = tauri::Url::from_file_path(&path).map_err(|_| language.text("图片路径无法转换").to_string())?;
         body.push_str(&format!(
             "<figure><figcaption>{}</figcaption><img src=\"{}\" alt=\"{}\"></figure>",
             escape(&file.name),
@@ -31,32 +32,32 @@ pub(crate) fn html(text: &str, files: &[ExportFile]) -> Result<String> {
     Ok(body)
 }
 
-fn records_html(manifest: &serde_json::Value, files: &[ExportFile]) -> Result<String> {
+fn records_html(manifest: &serde_json::Value, files: &[ExportFile], language: Language) -> Result<String> {
     let records = manifest["records"]
         .as_array()
-        .ok_or("图文对应清单格式错误")?;
+        .ok_or(language.text("图文对应清单格式错误"))?;
     let mut body = String::from("<div>");
     let mut total = 0_u64;
     for record in records {
         body.push_str(&format!(
             "<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>",
-            escape(record["text"].as_str().ok_or("清单正文格式错误")?)
+            escape(record["text"].as_str().ok_or(language.text("清单正文格式错误"))?)
         ));
-        for reference in record["files"].as_array().ok_or("清单图片格式错误")? {
+        for reference in record["files"].as_array().ok_or(language.text("清单图片格式错误"))? {
             let file = files
                 .iter()
                 .find(|f| Some(f.name.as_str()) == reference["name"].as_str())
-                .ok_or("清单与图片不一致")?;
+                .ok_or(language.text("清单与图片不一致"))?;
             let path = std::fs::canonicalize(&file.source).map_err(err)?;
             total += std::fs::metadata(&path).map_err(err)?.len();
             if total > 75 * 1024 * 1024 {
-                return Err("图文复制总量超过 75 MB，请使用完整导出或 MCP".into());
+                return Err(language.text("图文复制总量超过 75 MB，请使用完整导出或 MCP").into());
             }
-            let url = tauri::Url::from_file_path(path).map_err(|_| "图片路径无法转换")?;
+            let url = tauri::Url::from_file_path(path).map_err(|_| language.text("图片路径无法转换"))?;
             body.push_str(&format!(
                 "<img src=\"{}\" alt=\"{}\">",
                 escape(url.as_str()),
-                escape(reference["originalName"].as_str().unwrap_or("图片"))
+                escape(reference["originalName"].as_str().unwrap_or(language.text("图片")))
             ));
         }
     }
@@ -90,15 +91,16 @@ pub async fn copy_bundle(
                 mark: None,
             })
             .collect();
+        let language = s.language();
         let rich = if manifest["layout"] == "records" {
-            records_html(&manifest, &exported)?
+            records_html(&manifest, &exported, language)?
         } else {
-            html(&text, &exported)?
+            html(&text, &exported, language)?
         };
         #[cfg(windows)]
         {
             let _lock = clipboard_win::Clipboard::new_attempts(10).map_err(err)?;
-            let format = clipboard_win::formats::Html::new().ok_or("无法注册图文剪贴板格式")?;
+            let format = clipboard_win::formats::Html::new().ok_or(language.text("无法注册图文剪贴板格式"))?;
             clipboard_win::raw::empty().map_err(err)?;
             clipboard_win::raw::set_string_with(&text, clipboard_win::options::NoClear)
                 .map_err(err)?;
@@ -135,14 +137,14 @@ mod tests {
             mark: None,
         }];
         let manifest = serde_json::json!({"records":[{"text":"第一条","files":[{"name":"BATCH-R1-P1.png","originalName":"原图.png"}]},{"text":"第二条","files":[]}]});
-        let body = records_html(&manifest, &files).unwrap();
+        let body = records_html(&manifest, &files, s.language()).unwrap();
         assert!(body.find("第一条").unwrap() < body.find("<img").unwrap());
         assert!(body.find("<img").unwrap() < body.find("第二条").unwrap());
         assert!(!body.contains("<figcaption>"));
         assert!(body.contains("alt=\"原图.png\""));
         let wrong =
             serde_json::json!({"records":[{"text":"正文","files":[{"name":"missing.png"}]}]});
-        assert!(records_html(&wrong, &files).is_err());
+        assert!(records_html(&wrong, &files, s.language()).is_err());
         std::fs::remove_dir_all(s.root).unwrap();
     }
     #[test]
@@ -157,6 +159,7 @@ mod tests {
                 name: "\"<&.png".into(),
                 mark: None,
             }],
+            s.language(),
         )
         .unwrap();
         assert!(!body.contains("<script>"));

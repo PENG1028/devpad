@@ -228,7 +228,7 @@ pub fn data_root() -> Result<PathBuf> {
         .map(|p| p.join("local.devpad.desktop"))
         .ok_or("Cannot locate application data directory".into())
 }
-pub fn update_lock(root: &std::path::Path) -> Result<std::fs::File> {
+pub fn update_lock(root: &std::path::Path, language: crate::locale::Language) -> Result<std::fs::File> {
     let file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -237,7 +237,7 @@ pub fn update_lock(root: &std::path::Path) -> Result<std::fs::File> {
         .open(root.join("mcp.lock"))
         .map_err(err)?;
     file.try_lock().map_err(|_| {
-        "MCP 客户端正在使用 DevPad，请先断开该客户端连接，再点击更新；更新后可重连".to_string()
+        language.text("MCP 客户端正在使用 DevPad，请先断开该客户端连接，再点击更新；更新后可重连").to_string()
     })?;
     Ok(file)
 }
@@ -259,6 +259,7 @@ pub fn run() -> Result<()> {
     let s = Store {
         db: Mutex::new(db),
         root,
+        locale: std::sync::RwLock::new(crate::locale::Preference::Selected(crate::locale::Language::CHINESE)),
     };
     let input = std::io::stdin();
     let mut output = std::io::stdout().lock();

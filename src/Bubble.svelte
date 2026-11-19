@@ -1,4 +1,5 @@
 <script lang="ts">
+ import { t } from './i18n';
  import { invoke } from '@tauri-apps/api/core';
  import { getCurrentWindow } from '@tauri-apps/api/window';
  import { onMount } from 'svelte';
@@ -24,7 +25,7 @@
  }
  function up(e:PointerEvent){const click=!!press;press=null;const target=e.currentTarget as HTMLElement;if(target.hasPointerCapture(e.pointerId))target.releasePointerCapture(e.pointerId);if(click&&!dragging)void restore();}
 </script>
-<button class="floating-notebook" class:dot class:dragging class:failed aria-label={failed?'操作失败，点击重试展开笔记本':'展开笔记本'} onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={()=>press=null} onlostpointercapture={()=>press=null} onclick={e=>{if(e.detail===0)void restore();}}>
+<button class="floating-notebook" class:dot class:dragging class:failed aria-label={$t(failed?'操作失败，点击重试展开笔记本':'展开笔记本')} onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={()=>press=null} onlostpointercapture={()=>press=null} onclick={e=>{if(e.detail===0)void restore();}}>
  {#if dot}<span class="notebook-dot"></span>{:else}
  <img src={appIcon} alt="" draggable="false"/>
  {/if}

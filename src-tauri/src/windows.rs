@@ -1,4 +1,5 @@
 use crate::{err, Result};
+use crate::locale::{self, Language};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Mutex};
@@ -23,13 +24,42 @@ pub struct Windows {
     pub editors: Mutex<HashMap<String,EditorState>>,
     pub exit: Mutex<ExitState>,
 }
+
+fn auxiliary_spec(kind: &str, language: Language) -> Option<(&'static str, f64, f64)> {
+    let (title, width, height) = match kind {
+        "editor" => ("写笔记 · DevPad", 620., 650.),
+        "more" => ("设置 · DevPad", 520., 630.),
+        "agents" => ("Agent 与 MCP", 620., 700.),
+        "help" => ("帮助 · DevPad", 560., 660.),
+        "updates" => ("更新 · DevPad", 560., 580.),
+        "templates" => ("导出模板 · DevPad", 620., 700.),
+        "projects" | "filters" | "new-project" => ("项目与筛选 · DevPad", 500., 600.),
+        "delivery" => ("模板与完整导出 · DevPad", 720., 700.),
+        "image" => ("图片预览 · DevPad", 800., 650.),
+        _ => return None,
+    };
+    Some((language.text(title), width, height))
+}
+
+pub fn localize_title(window: &tauri::WebviewWindow, language: Language) -> tauri::Result<()> {
+    let label = window.label();
+    let kind = if label == "organizer" { "projects" } else { label.split_once('-').map_or(label, |(kind, _)| kind) };
+    if let Some((title, _, _)) = auxiliary_spec(kind, language) {
+        window.set_title(title)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn window_payload(window:tauri::WebviewWindow,state:tauri::State<Windows>)->Result<Value>{
-    state.payloads.lock().map_err(err)?.get(window.label()).cloned().ok_or("窗口内容不可用，请关闭后重新打开".into())
+    state.payloads.lock().map_err(err)?.get(window.label()).cloned().ok_or_else(||locale::language(window.app_handle()).text("窗口内容不可用，请关闭后重新打开").into())
 }
 #[tauri::command]
 pub fn editor_dirty(window:tauri::WebviewWindow,state:tauri::State<Windows>,dirty:bool,busy:bool,entry:String,project:String,summary:String,fingerprint:String)->Result<()> {
     let mut editors=state.editors.lock().map_err(err)?;
+    if window.label()=="main" {
+        editors.entry("main".into()).or_insert_with(||EditorState{label:"main".into(),..Default::default()});
+    }
     if let Some(editor)=editors.get_mut(window.label()) {
         if editor.fingerprint!=fingerprint || editor.busy!=busy {editor.revision+=1;}
         editor.dirty=dirty;editor.busy=busy;editor.entry=entry;editor.project=project;editor.summary=summary;editor.fingerprint=fingerprint;
@@ -43,17 +73,19 @@ pub fn editor_release(window:tauri::WebviewWindow,state:tauri::State<Windows>)->
 }
 #[tauri::command]
 pub fn editor_windows(state:tauri::State<Windows>)->Result<Vec<EditorState>> {
-    let mut result:Vec<_>=state.editors.lock().map_err(err)?.values().cloned().collect();result.sort_by(|a,b|a.label.cmp(&b.label));Ok(result)
+    let mut result:Vec<_>=state.editors.lock().map_err(err)?.values().filter(|editor|editor.label!="main").cloned().collect();result.sort_by(|a,b|a.label.cmp(&b.label));Ok(result)
 }
 #[tauri::command]
 pub fn focus_editor(app:tauri::AppHandle,label:String)->Result<()> {
-    if !app.state::<Windows>().editors.lock().map_err(err)?.contains_key(&label){return Err("笔记窗口已关闭".into())}
-    let window=app.get_webview_window(&label).ok_or("笔记窗口已关闭")?;
+    let closed=locale::language(&app).text("笔记窗口已关闭");
+    if !app.state::<Windows>().editors.lock().map_err(err)?.contains_key(&label){return Err(closed.into())}
+    let window=app.get_webview_window(&label).ok_or(closed)?;
     window.unminimize().map_err(err)?;window.show().map_err(err)?;window.set_focus().map_err(err)
 }
 #[tauri::command]
 pub async fn open_aux(app:tauri::AppHandle,kind:String,payload:Value)->Result<String> {
-    let (title,w,h)=match kind.as_str(){"editor"=>("写笔记 · DevPad",620.,650.),"more"=>("设置 · DevPad",520.,630.),"agents"=>("Agent 与 MCP",620.,700.),"help"=>("帮助 · DevPad",560.,660.),"updates"=>("更新 · DevPad",560.,580.),"templates"=>("导出模板 · DevPad",620.,700.),"projects"|"filters"|"new-project"=>("项目与筛选 · DevPad",500.,600.),"delivery"=>("模板与完整导出 · DevPad",720.,700.),"image"=>("图片预览 · DevPad",800.,650.),_=>return Err("未知窗口".into())};
+    let language=locale::language(&app);
+    let (title,w,h)=auxiliary_spec(&kind,language).ok_or(language.text("未知窗口"))?;
     let entry=payload["entry"]["id"].as_str().unwrap_or("");
     // Reserve the entry while holding the registry lock, including during window startup.
     let label=if kind=="editor" {
@@ -101,7 +133,7 @@ fn advance_exit(app:&tauri::AppHandle){
 #[tauri::command]
 pub fn exit_decision(app:tauri::AppHandle,window:tauri::WebviewWindow,approve:bool,revision:u64)->Result<()> {
     let state=app.state::<Windows>();let mut exit=state.exit.lock().map_err(err)?;
-    if exit.waiting.as_deref()!=Some(window.label()){return Err("退出请求已失效".into())}
+    if exit.waiting.as_deref()!=Some(window.label()){return Err(locale::language(&app).text("退出请求已失效").into())}
     if !approve{*exit=ExitState::default();return Ok(())}
     exit.approved.insert(window.label().into(),revision);exit.waiting=None;drop(exit);advance_exit(&app);Ok(())
 }

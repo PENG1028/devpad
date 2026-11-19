@@ -16,10 +16,10 @@ fn event(db: &Connection, id: &str, value: Value) -> Result<()> {
 }
 pub fn publish(s: &Store, ids: &[String], instructions: &str) -> Result<String> {
     if ids.is_empty() || ids.len() > 200 {
-        return Err("请选择 1–200 条笔记".into());
+        return Err(s.language().text("请选择 1–200 条笔记").into());
     }
     if instructions.len() > 100_000 {
-        return Err("任务说明过长".into());
+        return Err(s.language().text("任务说明过长").into());
     }
     let mut db = s.db.lock().map_err(err)?;
     let tx = db
@@ -35,7 +35,7 @@ pub fn publish(s: &Store, ids: &[String], instructions: &str) -> Result<String> 
             .query_row("SELECT payload FROM entries WHERE id=?1", [id], |r| {
                 r.get(0)
             })
-            .map_err(|_| "笔记已删除，请刷新后重试".to_string())?;
+            .map_err(|_| s.language().text("笔记已删除，请刷新后重试").to_string())?;
         records.push(serde_json::from_str::<Value>(&raw).map_err(err)?);
     }
     let id = uuid::Uuid::new_v4().to_string();
@@ -187,7 +187,7 @@ pub fn cancel_task(app: tauri::AppHandle, id: String) -> Result<()> {
     let s = app.state::<Store>();
     let mut db = s.db.lock().map_err(err)?;
     let tx = db.transaction().map_err(err)?;
-    if tx.execute("UPDATE agent_tasks SET state='cancelled',token=NULL,expires=NULL,revision=revision+1 WHERE id=?1 AND state IN ('available','claimed')",[&id]).map_err(err)?!=1{return Err("任务已结束".into());}
+    if tx.execute("UPDATE agent_tasks SET state='cancelled',token=NULL,expires=NULL,revision=revision+1 WHERE id=?1 AND state IN ('available','claimed')",[&id]).map_err(err)?!=1{return Err(s.language().text("任务已结束").into());}
     event(&tx, &id, json!({"action":"cancelled"}))?;
     tx.commit().map_err(err)?;
     app.emit("db-changed", ()).map_err(err)

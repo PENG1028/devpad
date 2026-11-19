@@ -16,7 +16,7 @@ pub fn notebook_pause(window:WebviewWindow,reason:String,paused:bool)->Result<()
 pub fn notebook_activity(app:tauri::AppHandle){if let Ok(mut dock)=app.state::<Mutex<Dock>>().lock(){dock.idle_since=None;}}
 #[tauri::command]
 pub async fn notebook_tick(app:tauri::AppHandle,delay_seconds:u64)->Result<bool>{
- let main=app.get_webview_window("main").ok_or("主窗口未打开")?;
+ let main=app.get_webview_window("main").ok_or(crate::locale::language(&app).text("主窗口未打开"))?;
  let paused=!main.is_visible().map_err(err)?||main.is_minimized().map_err(err)?||main.is_maximized().map_err(err)?||dragging()||inside(&main)?||app.webview_windows().iter().any(|(label,w)|label!="main"&&label!="bubble"&&w.is_visible().unwrap_or(false));
  let collapse={let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;if paused||dock.busy||dock.confirm||dock.moving||dock.hidden{dock.idle_since=None;false}else{dock.idle_since.get_or_insert_with(Instant::now).elapsed()>=Duration::from_secs(delay_seconds.clamp(5,300))}};
  if collapse {main.emit("notebook-collapse-request",()).map_err(err)?;return Ok(true)}Ok(false)
@@ -47,7 +47,7 @@ async fn resize_surface(main:&WebviewWindow,p:PhysicalPosition<i32>,from:Physica
  tauri::async_runtime::spawn_blocking(move||->Result<()>{
   let waiting=Instant::now();
   while !win.state::<Mutex<Dock>>().lock().map_err(err)?.prepared {
-   if waiting.elapsed()>Duration::from_secs(2){return Err("窗口动画尚未就绪，请重试".into())}
+   if waiting.elapsed()>Duration::from_secs(2){return Err(crate::locale::language(win.app_handle()).text("窗口动画尚未就绪，请重试").into())}
    std::thread::sleep(Duration::from_millis(8));
   }
   let started=Instant::now();
@@ -64,18 +64,18 @@ async fn resize_surface(main:&WebviewWindow,p:PhysicalPosition<i32>,from:Physica
 }
 #[tauri::command]
 pub async fn notebook_collapse(app:tauri::AppHandle,target:tauri::LogicalPosition<f64>)->Result<()> {
- let main=app.get_webview_window("main").ok_or("主窗口未打开")?;
+ let main=app.get_webview_window("main").ok_or(crate::locale::language(&app).text("主窗口未打开"))?;
  if !main.is_visible().map_err(err)?||main.is_minimized().map_err(err)?||main.is_maximized().map_err(err)?{return Ok(())}
- if app.webview_windows().iter().any(|(label,w)|label!="main"&&w.is_visible().unwrap_or(false)){return Err("请先关闭辅助窗口，再收起笔记本".into())}
+ if app.webview_windows().iter().any(|(label,w)|label!="main"&&w.is_visible().unwrap_or(false)){return Err(crate::locale::language(&app).text("请先关闭辅助窗口，再收起笔记本").into())}
  let p=main.outer_position().map_err(err)?;let size=main.outer_size().map_err(err)?;
  let c=Corner{right:true,bottom:false};
  let scale=main.scale_factor().map_err(err)?;
- if !target.x.is_finite()||!target.y.is_finite(){return Err("无法读取收起按钮位置".into())}
+ if !target.x.is_finite()||!target.y.is_finite(){return Err(crate::locale::language(&app).text("无法读取收起按钮位置").into())}
  let small=PhysicalSize::new((36.*scale).round()as u32,(36.*scale).round()as u32);
  let client=main.inner_position().map_err(err)?;
  let destination=PhysicalPosition::new(client.x+(target.x*scale).round()as i32,client.y+(target.y*scale).round()as i32);
  let animate={let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;
-  if dock.hidden||dock.moving{return Ok(())}if dock.busy||dock.confirm{return Err("请先完成当前操作，再收起笔记本".into())}
+  if dock.hidden||dock.moving{return Ok(())}if dock.busy||dock.confirm{return Err(crate::locale::language(&app).text("请先完成当前操作，再收起笔记本").into())}
   dock.pinned=main.is_always_on_top().map_err(err)?;dock.moving=true;dock.prepared=false;dock.dot=false;dock.origin=Some(p);dock.full_size=Some(size);dock.corner=c;dock.anchor=Some(destination);!dock.reduced_motion};
  let result:Result<()>=async {
   main.set_min_size(Some(tauri::LogicalSize::new(24.,24.))).map_err(err)?;
@@ -94,7 +94,7 @@ pub async fn notebook_collapse(app:tauri::AppHandle,target:tauri::LogicalPositio
 pub fn bubble_status(app:tauri::AppHandle)->Result<bool>{Ok(app.state::<Mutex<Dock>>().lock().map_err(err)?.dot)}
 #[tauri::command]
 pub fn bubble_settle(app:tauri::AppHandle)->Result<bool>{
- if !app.state::<Mutex<Dock>>().lock().map_err(err)?.hidden{return Ok(false)}let bubble=app.get_webview_window("main").ok_or("悬浮窗口未打开")?;let monitor=bubble.current_monitor().map_err(err)?.ok_or("无法读取屏幕位置")?;let area=monitor.work_area();let p=bubble.outer_position().map_err(err)?;let size=bubble.outer_size().map_err(err)?;let margin=(16.*monitor.scale_factor())as i32;
+ if !app.state::<Mutex<Dock>>().lock().map_err(err)?.hidden{return Ok(false)}let bubble=app.get_webview_window("main").ok_or(crate::locale::language(&app).text("悬浮窗口未打开"))?;let monitor=bubble.current_monitor().map_err(err)?.ok_or(crate::locale::language(&app).text("无法读取屏幕位置"))?;let area=monitor.work_area();let p=bubble.outer_position().map_err(err)?;let size=bubble.outer_size().map_err(err)?;let margin=(16.*monitor.scale_factor())as i32;
  let left=area.position.x;let top=area.position.y;let right=left+area.size.width as i32;let bottom=top+area.size.height as i32;
  let candidates=[((p.x-left).abs(),0),((p.x+size.width as i32-right).abs(),1),((p.y-top).abs(),2)];let &(distance,side)=candidates.iter().min_by_key(|x|x.0).unwrap();
  let seam=app.get_webview_window("main").unwrap().available_monitors().map_err(err)?.iter().any(|other|{if other.position()==monitor.position(){return false}let q=other.position();let s=other.size();match side{0=>q.x+s.width as i32==monitor.position().x&&q.y<p.y+size.height as i32&&q.y+s.height as i32>p.y,1=>q.x==monitor.position().x+monitor.size().width as i32&&q.y<p.y+size.height as i32&&q.y+s.height as i32>p.y,_=>q.y+s.height as i32==monitor.position().y&&q.x<p.x+size.width as i32&&q.x+s.width as i32>p.x}});
@@ -107,7 +107,7 @@ pub fn bubble_settle(app:tauri::AppHandle)->Result<bool>{
 // no queued cursor reads or set-position requests survive mouse-up.
 #[tauri::command]
 pub async fn notebook_drag(app:tauri::AppHandle)->Result<bool>{
- let main=app.get_webview_window("main").ok_or("主窗口未打开")?;
+ let main=app.get_webview_window("main").ok_or(crate::locale::language(&app).text("主窗口未打开"))?;
  {let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;if !dock.hidden||dock.moving{return Ok(dock.dot)}dock.moving=true;}
  let result:Result<()>=async {
   #[cfg(windows)] {
@@ -137,12 +137,12 @@ fn morph_rect(window:&WebviewWindow,position:PhysicalPosition<i32>,size:Physical
 }
 #[tauri::command]
 pub async fn edge_restore(app:tauri::AppHandle,animate:bool)->Result<()> {
- let main=app.get_webview_window("main").ok_or("主窗口未打开")?;
+ let main=app.get_webview_window("main").ok_or(crate::locale::language(&app).text("主窗口未打开"))?;
  let (compact,stored,c,pinned)={let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;if dock.moving{return Ok(())}dock.moving=true;dock.prepared=false;(dock.hidden,dock.full_size,dock.corner,dock.pinned)};
  let result:Result<()>=async {
   if compact {
    let start=main.outer_position().map_err(err)?;let from=main.outer_size().map_err(err)?;
-   let monitor=main.current_monitor().map_err(err)?.ok_or("无法读取屏幕位置")?;let area=monitor.work_area();
+   let monitor=main.current_monitor().map_err(err)?.ok_or(crate::locale::language(&app).text("无法读取屏幕位置"))?;let area=monitor.work_area();
    let stored=stored.unwrap_or(PhysicalSize::new(1040,780));
    let c=nearest_corner(start,from,tauri::Rect{position:area.position.into(),size:area.size.into()});
    // Keep the corner stationary even after dragging to a different monitor.

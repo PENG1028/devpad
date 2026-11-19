@@ -15,17 +15,18 @@ pub fn save_draft(
     fingerprint: String,
     previous_id: Option<String>,
 ) -> Result<()> {
-    if !window.label().starts_with("editor-") {
-        return Err("只有编辑窗口可以保存草稿".into());
+    if window.label() != "main" && !window.label().starts_with("editor-") {
+        return Err(crate::locale::language(&app).text("只有编辑窗口可以保存草稿").into());
     }
     let s = app.state::<Store>();
     for a in payload["attachments"]
         .as_array()
-        .ok_or("草稿附件格式错误")?
+        .ok_or(crate::locale::language(&app).text("草稿附件格式错误"))?
     {
-        attachment_path(&s, a["path"].as_str().ok_or("草稿附件路径错误")?)?;
+        attachment_path(&s, a["path"].as_str().ok_or(crate::locale::language(&app).text("草稿附件路径错误"))?)?;
     }
-    let empty = payload["text"].as_str().unwrap_or("").is_empty()
+    let empty = payload["editing"].as_str().unwrap_or("").is_empty()
+        && payload["text"].as_str().unwrap_or("").is_empty()
         && payload["attachments"]
             .as_array()
             .is_none_or(|v| v.is_empty())
@@ -99,7 +100,7 @@ pub fn ready_for_update(app: &tauri::AppHandle) -> Result<()> {
     let db = store.db.lock().map_err(err)?;
     for editor in editors.values() {
         if editor.busy {
-            return Err("正在处理图片或保存，请稍后再更新".into());
+            return Err(store.language().text("正在处理图片或保存，请稍后再更新").into());
         }
         if editor.dirty {
             let saved = db
@@ -110,7 +111,7 @@ pub fn ready_for_update(app: &tauri::AppHandle) -> Result<()> {
                 )
                 .ok();
             if saved.as_deref() != Some(&editor.fingerprint) {
-                return Err("正在保存草稿，请稍后再更新".into());
+                return Err(store.language().text("正在保存草稿，请稍后再更新").into());
             }
         }
     }

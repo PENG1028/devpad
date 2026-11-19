@@ -53,16 +53,59 @@ html,body,#app{width:100%;height:100%;overflow:hidden}
 .selection-info{flex-wrap:nowrap;gap:6px;min-height:32px}.selection-info strong{white-space:nowrap;font-size:12px}
 .selection-info>button{min-height:26px;padding:3px 6px;font-size:12px}
 .selection-actions{padding-top:4px;gap:4px}.selection-actions>button{min-height:26px;padding:3px 7px;font-size:12px}
-.selection-info .copy-control{margin-left:78px}.selection-info .spacer{min-width:0}
+.selection-info .spacer{min-width:0}
 .move-project-label{display:block;margin:16px 0 8px;font-size:13px}#move-project{width:100%}
 .notes-content .day-label{margin:10px 0 4px}
-@media(max-width:520px){.list-tools{flex-wrap:wrap;gap:4px}.list-heading{flex:1}.list-tools>button{font-size:11px}.notes-content article{padding:12px 8px}.selection-info .copy-control{margin-left:36px}.note-heading{gap:8px}.note-heading h2{font-size:14px}}
+@media(max-width:520px){.list-tools{flex-wrap:wrap;gap:4px}.list-heading{flex:1}.list-tools>button{font-size:11px}.notes-content article{padding:12px 8px}.note-heading{gap:8px}.note-heading h2{font-size:14px}}
 @media(max-height:460px){.list-tools{min-height:42px;padding:6px 0}.notes-content{padding-top:2px}.selection-toolbar{padding:5px 8px}.bottom-area{padding-top:6px;padding-bottom:6px}.feedback{font-size:11px;padding:4px 0}}
 
-/* Keep the toolbar inside the shifted content column, above the scroll viewport. */
-.sidebar-open>.list-tools{width:calc(100% - 328px);margin-left:304px;margin-right:24px}
-.sheet.sidebar{box-shadow:none}
 .selection-info{flex-wrap:wrap}.selection-info .spacer{min-width:8px}
 .selection-info>button{white-space:nowrap}
 .attachment .annotate-image{position:absolute;left:4px;bottom:4px;background:var(--bg);border:1px solid var(--line);font-size:11px;min-height:26px;padding:3px 7px}
 .editor-fields label{display:flex;align-items:center;gap:8px}
+
+.journal-titlebar .project-picker{max-width:min(38vw,300px);min-width:0}
+.journal-select{padding:4px 8px;min-height:30px;color:var(--secondary);font-size:12px;white-space:nowrap}
+.journal-select[aria-pressed=true]{color:var(--blue);background:var(--selected)}
+.journal-controls{display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-shrink:0}
+.journal-controls button{min-height:30px;padding:4px 8px;font-size:12px}
+.journal-content .day-label{margin:14px 0 8px;font-size:14px;font-weight:500;color:var(--text)}
+.journal-content .day-label:first-child{margin-top:0}
+.journal-content article{position:relative;margin:0;padding:7px 8px 12px;border:0;border-bottom:1px solid var(--line);border-radius:0}
+.journal-content article.selected{border-radius:6px;border-color:transparent}
+.journal-note-head{display:flex;align-items:center;justify-content:space-between;min-height:30px;gap:8px}
+.journal-note-head .note-meta{margin:0;color:var(--secondary)}
+.journal-note-actions{display:flex;gap:2px;flex-shrink:0}
+.journal-note-actions .icon-button{width:32px;height:32px;min-height:32px;padding:6px;color:var(--secondary)}
+.journal-note-actions .note-menu{width:32px!important;height:32px!important;min-height:32px!important}
+.journal-content .note-text{margin:0;color:var(--text);font-size:15px;line-height:1.6}
+.journal-content .note-images{margin-top:8px}
+.journal-content .selection-check{width:25px;height:25px;min-width:25px;min-height:25px;margin-top:3px}
+.journal-empty{padding:8px;color:var(--secondary);font-size:14px}
+.bottom-area:has(.journal-selection){overflow:visible;position:relative;z-index:14}
+.journal-selection{display:flex;align-items:center;gap:5px;padding:5px 7px}
+.journal-selection strong{margin-right:auto;padding-left:5px;font-size:12px;white-space:nowrap}
+.journal-selection>button{min-height:32px;padding:4px 8px;font-size:12px;white-space:nowrap}
+.journal-composer{min-height:0;gap:0;border-radius:9px}
+.journal-composer .editor-scroll{min-height:0;padding:5px 8px 0}
+.journal-composer textarea{min-height:52px;padding:4px 7px;line-height:1.55}
+.journal-editor-actions{gap:4px;padding:4px 6px}
+.journal-editor-actions button{min-height:32px;padding:4px 7px;font-size:13px}
+.draft-state{color:var(--secondary);font-size:11px;white-space:nowrap}
+.capture-bar{border-radius:9px}
+.capture-bar>svg{border:0;padding:0;color:var(--blue)}
+.journal-feedback{flex-shrink:0}
+.app-shell:not(.editor-window) .bottom-area>.journal-feedback:not(.error){position:absolute;right:16px;bottom:70px;z-index:15;max-width:calc(100% - 32px);margin:0;background:var(--surface);box-shadow:var(--elevation)}
+@media(max-height:460px){
+ .journal-controls{padding:0}
+ .journal-content .day-label{margin:10px 0 4px}
+ .journal-content article{padding:4px 6px 8px}
+ .journal-editor-actions .draft-state{font-size:11px}
+ .journal-composer{max-height:50dvh}
+ .editor-window .journal-composer{max-height:none}
+ .journal-composer .editor-scroll{padding-top:3px}
+}
+@media(max-width:470px){
+ .journal-select{min-height:34px;width:30px;padding:6px}
+ .journal-select span{display:none}
+}

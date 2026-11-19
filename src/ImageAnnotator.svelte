@@ -1,4 +1,5 @@
 <script lang="ts">
+ import { t } from './i18n';
  import {onMount} from 'svelte';
  import {convertFileSrc} from '@tauri-apps/api/core';
  import type {Attachment} from './core';
@@ -19,12 +20,12 @@
  async function close(){if(busy)return;if(marks.length&&!await confirmation.ask('关闭后将丢弃这次未应用的标注。','放弃标注','关闭图片标注？','继续标注'))return;onclose();}
  async function save(){if(!ready||busy||!marks.length)return;busy=true;error='';try{await onsave(canvas.toDataURL('image/png').split(',')[1]);onclose();}catch(e){error=String(e);}finally{busy=false;}}
 </script>
-<dialog class="annotator" bind:this={dialog} aria-label="图片标注" oncancel={e=>{e.preventDefault();void close();}}>
- <header><strong>图片标注</strong><button disabled={busy} onclick={close}>关闭</button></header>
- <div class="annotation-tools" inert={busy}>{#each [{id:'circle',label:'画圈'},{id:'pen',label:'画笔'},{id:'arrow',label:'箭头'}] as item}<button aria-pressed={tool===item.id} onclick={()=>tool=item.id}>{item.label}</button>{/each}<label>颜色 <input type="color" aria-label="标注颜色" bind:value={color}/></label><button disabled={!marks.length} onclick={undo}>撤销</button></div>
- <div class="canvas-area"><canvas aria-label="标注画布" bind:this={canvas} onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancelStroke} onlostpointercapture={cancelStroke}></canvas></div>
- {#if error}<p role="alert">{error}</p>{/if}
- <footer><span>原图保留，应用后请保存笔记。</span><button class="blue-button" disabled={!ready||busy||!marks.length} onclick={save}>{busy?'保存中…':'应用标注'}</button></footer>
+<dialog class="annotator" bind:this={dialog} aria-label={$t('图片标注')} oncancel={e=>{e.preventDefault();void close();}}>
+ <header><strong>{$t('图片标注')}</strong><button disabled={busy} onclick={close}>{$t('关闭')}</button></header>
+ <div class="annotation-tools" inert={busy}>{#each [{id:'circle',label:'画圈'},{id:'pen',label:'画笔'},{id:'arrow',label:'箭头'}] as item}<button aria-pressed={tool===item.id} onclick={()=>tool=item.id}>{$t(item.label)}</button>{/each}<label>{$t('颜色')} <input type="color" aria-label={$t('标注颜色')} bind:value={color}/></label><button disabled={!marks.length} onclick={undo}>{$t('撤销')}</button></div>
+ <div class="canvas-area"><canvas aria-label={$t('标注画布')} bind:this={canvas} onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancelStroke} onlostpointercapture={cancelStroke}></canvas></div>
+ {#if error}<p role="alert">{$t(error)}</p>{/if}
+ <footer><span>{$t('原图保留，应用后请保存笔记。')}</span><button class="blue-button" disabled={!ready||busy||!marks.length} onclick={save}>{$t(busy?'保存中…':'应用标注')}</button></footer>
 </dialog>
 <ConfirmDialog bind:this={confirmation}/>
 <style>
