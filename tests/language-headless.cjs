@@ -19,6 +19,8 @@ async function checkLanguages(browser, notebookUrl){
   });
   const page=await context.newPage();
   const second=await context.newPage();
+  // Poll from the test process so a background WebKit page does not need to paint a frame.
+  const peerLanguage=code=>expect.poll(()=>second.evaluate(()=>document.documentElement.lang)).toBe(code);
   await Promise.all([page.goto(notebookUrl),second.goto(notebookUrl)]);
   await expect(page.locator('html')).toHaveAttribute('lang','en');
   await expect(page.getByText('用户笔记正文',{exact:true})).toBeVisible();
@@ -37,13 +39,13 @@ async function checkLanguages(browser, notebookUrl){
   await selectLanguage('Display language','简体中文');
   await expect(page.getByRole('combobox',{name:'界面语言'})).toBeVisible();
   await expect(rows.nth(1)).toHaveAccessibleName('收件箱');
-  await expect(second.locator('html')).toHaveAttribute('lang','zh-CN');
+  await peerLanguage('zh-CN');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('lang','zh-CN');
   await page.getByRole('button',{name:'更多',exact:true}).first().click();
   await selectLanguage('界面语言','English');
   await expect(rows.nth(1)).toHaveAccessibleName('Inbox');
-  await expect(second.locator('html')).toHaveAttribute('lang','en');
+  await peerLanguage('en');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('lang','en');
 
@@ -84,7 +86,7 @@ async function checkLanguages(browser, notebookUrl){
    const dictionary=item.code==='zh-CN'?{}:require('../src/locales/messages/'+item.code+'.json');
    await expect(page.locator('html')).toHaveAttribute('lang',item.code);
    await expect(page.locator('html')).toHaveAttribute('dir',item.direction||'ltr');
-   await expect(second.locator('html')).toHaveAttribute('lang',item.code);
+   await peerLanguage(item.code);
    await expect(rows.nth(1)).toHaveAccessibleName(dictionary['收件箱']||'收件箱');
    await expect(rows.nth(2)).toHaveAccessibleName('收件箱');
    await expect(page.getByRole('tab',{name:dictionary['通用']||'通用',exact:true})).toHaveAttribute('aria-selected','true');
