@@ -64,6 +64,20 @@ fn records_html(manifest: &serde_json::Value, files: &[ExportFile], language: La
     body.push_str("</div>");
     Ok(body)
 }
+#[cfg(windows)]
+fn write_windows_formats(text: &str, rich: &str, files: &[ExportFile], language: Language) -> Result<()> {
+    use clipboard_win::{formats, options::NoClear, raw, Clipboard};
+    let format = formats::Html::new().ok_or(language.text("无法注册图文剪贴板格式"))?;
+    let paths: Vec<_> = files.iter().map(|file| &file.source).collect();
+    let _lock = Clipboard::new_attempts(10).map_err(err)?;
+    raw::empty().map_err(err)?;
+    raw::set_string_with(text, NoClear).map_err(err)?;
+    raw::set_html_with(format.code(), rich, NoClear).map_err(err)?;
+    if !paths.is_empty() {
+        raw::set_file_list_with(&paths, NoClear).map_err(err)?;
+    }
+    Ok(())
+}
 #[tauri::command]
 pub async fn copy_bundle(
     app: tauri::AppHandle,
@@ -98,19 +112,7 @@ pub async fn copy_bundle(
             html(&text, &exported, language)?
         };
         #[cfg(windows)]
-        {
-            let _lock = clipboard_win::Clipboard::new_attempts(10).map_err(err)?;
-            let format = clipboard_win::formats::Html::new().ok_or(language.text("无法注册图文剪贴板格式"))?;
-            clipboard_win::raw::empty().map_err(err)?;
-            clipboard_win::raw::set_string_with(&text, clipboard_win::options::NoClear)
-                .map_err(err)?;
-            clipboard_win::raw::set_html(format.code(), &rich).map_err(err)?;
-            let paths: Vec<_> = exported.iter().map(|f| &f.source).collect();
-            if !paths.is_empty() {
-                clipboard_win::raw::set_file_list_with(&paths, clipboard_win::options::NoClear)
-                    .map_err(err)?;
-            }
-        }
+        write_windows_formats(&text, &rich, &exported, language)?;
         #[cfg(not(windows))]
         {
             arboard::Clipboard::new()
@@ -126,6 +128,66 @@ pub async fn copy_bundle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn windows_publishes_text_html_and_image_files_together() {
+        // The child has its own Windows clipboard. The user's current clipboard stays untouched.
+        const CHILD: &str = "DEVPAD_PRIVATE_CLIPBOARD_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "clipboard::tests::windows_publishes_text_html_and_image_files_together"])
+                .env(CHILD, "1").status().unwrap();
+            assert!(status.success());
+            return;
+        }
+        use std::{ffi::c_void, ptr::null};
+        #[link(name="user32")]
+        extern "system" {
+            fn CreateWindowStationW(name:*const u16, flags:u32, access:u32, security:*const c_void) -> *mut c_void;
+            fn GetProcessWindowStation() -> *mut c_void;
+            fn GetUserObjectInformationW(object:*mut c_void, index:i32, buffer:*mut c_void, length:u32, needed:*mut u32) -> i32;
+            fn SetProcessWindowStation(station:*mut c_void) -> i32;
+            fn CreateDesktopW(name:*const u16, device:*const u16, mode:*const c_void, flags:u32, access:u32, security:*const c_void) -> *mut c_void;
+            fn SetThreadDesktop(desktop:*mut c_void) -> i32;
+        }
+        let station_name:Vec<_>=format!("DevPadTest-{}\0",uuid::Uuid::new_v4()).encode_utf16().collect();
+        let desktop_name:Vec<_>=format!("Clipboard-{}\0",uuid::Uuid::new_v4()).encode_utf16().collect();
+        fn station_name_of(station:*mut c_void)->Vec<u16>{
+            let mut name=[0u16;256];
+            let mut needed=0;
+            assert_ne!(unsafe{GetUserObjectInformationW(station,2,name.as_mut_ptr().cast(),512,&mut needed)},0);
+            name[..needed as usize/2].to_vec()
+        }
+        unsafe {
+            let mut station=CreateWindowStationW(station_name.as_ptr(),0,0x10000000,null());
+            if station.is_null(){station=CreateWindowStationW(null(),0,0x10000000,null());}
+            assert!(!station.is_null());
+            assert_ne!(station_name_of(station),station_name_of(GetProcessWindowStation()));
+            assert!(!station.is_null() && SetProcessWindowStation(station)!=0,"{}",std::io::Error::last_os_error());
+            let desktop=CreateDesktopW(desktop_name.as_ptr(),null(),null(),0,0x10000000,null());
+            assert!(!desktop.is_null() && SetThreadDesktop(desktop)!=0,"{}",std::io::Error::last_os_error());
+        }
+        let store=crate::tests::store();
+        let names=["A.png","B.png"];
+        let files:Vec<_>=names.iter().map(|name|{
+            let path=store.root.join("attachments").join(name);
+            std::fs::write(&path,name).unwrap();
+            ExportFile{source:path.to_string_lossy().into(),name:name.to_string(),mark:None}
+        }).collect();
+        let manifest=serde_json::json!({"records":[{"text":"正文","files":[{"name":"A.png","originalName":"一.png"},{"name":"B.png","originalName":"二.png"}]}]});
+        let rich=records_html(&manifest,&files,store.language()).unwrap();
+        let plain="正文\n[图片] 一.png\n[图片] 二.png";
+        write_windows_formats(plain,&rich,&files,store.language()).unwrap();
+        let _read=clipboard_win::Clipboard::new_attempts(10).unwrap();
+        let (mut text,mut html,mut paths)=(Vec::new(),Vec::new(),Vec::new());
+        clipboard_win::raw::get_string(&mut text).unwrap();
+        clipboard_win::raw::get_html(clipboard_win::formats::Html::new().unwrap().code(),&mut html).unwrap();
+        clipboard_win::raw::get_file_list(&mut paths).unwrap();
+        assert_eq!(String::from_utf8(text).unwrap(),plain);
+        assert_eq!(String::from_utf8(html).unwrap(),rich);
+        assert_eq!(paths,files.iter().map(|file|file.source.as_str()).collect::<Vec<_>>());
+        std::fs::remove_dir_all(store.root).unwrap();
+    }
     #[test]
     fn plain_rich_copy_keeps_each_notes_images_without_engineering_captions() {
         let s = crate::tests::store();

@@ -14,6 +14,7 @@
  import SelectField from './SelectField.svelte';
  import ProjectNavigation from './ProjectNavigation.svelte';
  import ActionPopover from './ActionPopover.svelte';
+ import CopyControl from './CopyControl.svelte';
  import ImageAnnotator from './ImageAnnotator.svelte';
  let annotating:Attachment|null=$state(null);
  async function saveAnnotation(data:string){const source=annotating;if(!source)return;const saved=await invoke<Attachment>('add_image',{name:source.name.replace(/\.[^.]+$/,'')+$t('-标注.png'),data});attachments=attachments.map(a=>a.id===source.id?saved:a);}
@@ -23,7 +24,7 @@
  import ConfirmDialog from './ConfirmDialog.svelte';
  let {suspended=false}=$props<{suspended?:boolean}>();
  let confirmation:ConfirmDialog;
- import { types, tagsOf, editorSignature, compose, createDelivery, originalOutput, sourceChanged, type DeliverySession, type Entry, type Project, type Attachment } from './core';
+ import { types, tagsOf, editorSignature, compose, createDelivery, originalOutput, defaultCopyMode, sourceChanged, type CopyMode, type DeliverySession, type Entry, type Project, type Attachment } from './core';
  type Panel='agents'|'publish'|'help'|'updates'|'templates'|'drafts'|'projects'|'filters'|'more'|'entry'|'delivery'|'new-project'|'image'|'windows'|'move'|null;
  let projects:Project[]=$state([]), entries:Entry[]=$state([]), projectId=$state('');
  let search=$state(''), filterTypes:string[]=$state([]), status=$state(''), tag=$state('');
@@ -31,7 +32,8 @@
  let selected:string[]=$state([]), anchor=$state(''), selecting=$state(false), expanded=$state(false), searching=$state(false);
  let panel:Panel=$state(null), activeEntry:Entry|null=$state(null), preview:Attachment|null=$state(null);
  let busy=$state(false), error=$state(''), notice=$state<{key:string;values?:Record<string,string|number>}|null>(null), dataDir=$state(''), projectName=$state(''), ready=$state(false);
- let retryAction=$state<(()=>Promise<void>)|null>(null), copiedId=$state('');
+ let retryAction=$state<(()=>Promise<void>)|null>(null), copied=$state<{id:string;mode:CopyMode}|null>(null);
+ let copyOptionsFor=$state('');
  let theme=$state<'light'|'dark'|'system'>(preference()), systemDark=$state(matchMedia('(prefers-color-scheme: dark)').matches), pinned=$state(localStorage.getItem('devpad-main-on-top')==='true'), maximized=$state(false);
  let editor=$state<HTMLTextAreaElement>(null!), fileInput=$state<HTMLInputElement>(null!), searchInput=$state<HTMLInputElement>(null!);
  let modal=$state<HTMLDialogElement>(null!), imageModal=$state<HTMLDialogElement>(null!), scroller=$state<HTMLElement>(null!);
@@ -99,7 +101,11 @@
  let draftGeneration=0;
  let moveIds:string[]=$state([]),moveTarget=$state('');
  const moveProjects=$derived(projects.filter(project=>!moveIds.every(id=>entries.find(entry=>entry.id===id)?.projectId===project.id)));
- function dismissMenus(){selectionMenu?.close();recordMenu?.close();}
+ function dismissMenus(){copyOptionsFor='';selectionMenu?.close();recordMenu?.close();}
+ function offerCopies(id:string,open:boolean){
+  if(open && !recordMenuOpen && !panel && !selecting)copyOptionsFor=id;
+  else if(copyOptionsFor===id)copyOptionsFor='';
+ }
  function toggleSelection(){dismissMenus();if(selecting){selecting=false;selected=[];anchor='';}else void selectMode();}
  async function openMove(ids:string[]){dismissMenus();moveIds=[...ids];moveTarget=moveProjects[0]?.id||'';panel='move';await tick();if(!modal.open)modal.showModal();}
  async function moveNotes(){if(busy||!moveTarget||!moveIds.length)return;busy=true;await run(async()=>{await invoke('move_entries',{ids:moveIds,projectId:moveTarget,updatedAt:new Date().toISOString()});await emit('db-changed');await refresh();selected=[];selecting=false;closePanel();announce('已移动 {count} 条笔记到 {project}',{count:moveIds.length,project:displayProject(projects.find(p=>p.id===moveTarget),$t('目标项目'))});});busy=false;}
@@ -131,7 +137,7 @@
   return()=>{cancelled=true;};
  });
  $effect(()=>{if(notice){const timer=setTimeout(()=>notice=null,5000);return()=>clearTimeout(timer);}});
- $effect(()=>{if(copiedId){const timer=setTimeout(()=>copiedId='',1700);return()=>clearTimeout(timer);}});
+ $effect(()=>{if(copied){const timer=setTimeout(()=>copied=null,1700);return()=>clearTimeout(timer);}});
  function announce(key:string,values?:Record<string,string|number>){notice={key,values};}
  function editorReport(){return {dirty,busy:busy||!initialized,entry:editing,project:displayProject(draftProject,draftProjectId),summary:text.slice(0,60)||(attachments.length?$t('图片笔记'):$t('新笔记')),fingerprint:JSON.stringify(draftPayload())};}
  $effect(()=>{if(canDraft&&initialized)void invoke('editor_dirty',editorReport());});
@@ -160,6 +166,14 @@
  }
  async function selectMode(){selecting=true;expanded=false;closePanel();}
  let startup=$state(false), startupBusy=$state(false), pinBusy=$state(false);
+ async function readDesktopPreferences(){
+  if(startupBusy||pinBusy)return;
+  startupBusy=true;pinBusy=true;
+  try{
+   [startup,pinned]=await Promise.all([invoke<boolean>('startup_enabled'),getCurrentWindow().label==='main'
+    ?getCurrentWindow().isAlwaysOnTop():Window.getByLabel('main').then(win=>win?.isAlwaysOnTop()??false)]);
+  }finally{startupBusy=false;pinBusy=false;}
+ }
  async function choosePinned(enabled:boolean){
   if(pinBusy)return;
   pinBusy=true;
@@ -180,12 +194,17 @@
  let notebookMode=$state(localStorage.getItem('devpad-notebook-mode')==='true');
  let notebookDelay=$state(Number(localStorage.getItem('devpad-notebook-delay'))||30);
  let notebookSleeping=false;
- $effect(()=>{if(!auxiliary&&isTauri())void invoke('notebook_pause',{reason:'busy',paused:busy||!!panel||navigationOpen||recordMenuOpen||batchMenuOpen||!!preview||dragging});});
+ const pauseNotebook=$derived(busy||!!panel||navigationOpen||recordMenuOpen||batchMenuOpen||!!copyOptionsFor||selecting||!!preview||dragging);
+ $effect(()=>{if(!auxiliary&&isTauri())void invoke('notebook_pause',{reason:'busy',paused:pauseNotebook});});
  async function syncNotebook(){await invoke('notebook_config',{enabled:notebookMode,delaySeconds:notebookDelay,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches});}
  function notebookActivity(){if(!auxiliary&&notebookMode&&!notebookSleeping&&!suspended)void invoke('notebook_activity');}
- function chooseNotebook(enabled:boolean){notebookMode=enabled;localStorage.setItem('devpad-notebook-mode',String(enabled));}
- function chooseDelay(value:number){notebookDelay=value;localStorage.setItem('devpad-notebook-delay',String(value));}
- async function collapseNotebook(){if(suspended)return;const rect=document.querySelector('[data-notebook-collapse]')?.getBoundingClientRect();if(!rect)return;await run(async()=>{await invoke('notebook_collapse',{target:{x:rect.left+(rect.width-36)/2,y:rect.top+(rect.height-36)/2}});});}
+ function chooseNotebook(enabled:boolean){notebookMode=enabled;localStorage.setItem('devpad-notebook-mode',String(enabled));if(!auxiliary&&isTauri())void run(syncNotebook);}
+ function chooseDelay(value:number){notebookDelay=value;localStorage.setItem('devpad-notebook-delay',String(value));if(!auxiliary&&isTauri())void run(syncNotebook);}
+ async function collapseNotebook(automatic=false){
+  if(suspended||(automatic&&(!notebookMode||pauseNotebook)))return;
+  const rect=document.querySelector('[data-notebook-collapse]')?.getBoundingClientRect();if(!rect)return;
+  await run(async()=>{await invoke('notebook_collapse',{automatic,target:{x:rect.left+(rect.width-36)/2,y:rect.top+(rect.height-36)/2}});});
+ }
 
  function dragOver(event:DragEvent){if(suspended)return;if(panelWindow)return;if(Array.from(event.dataTransfer?.types||[]).includes('Files')){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='copy';dragging=true;}}
  function dragEnter(event:DragEvent){if(suspended)return;if(panelWindow)return;if(Array.from(event.dataTransfer?.types||[]).includes('Files')){event.preventDefault();dragDepth++;dragging=true;}}
@@ -230,23 +249,23 @@
   if(isTauri()){await invoke('open_aux',{kind:'delivery',payload:{session}});return;}
   deliverySession=session;deliveryBatch=session.batch;deliveryOrder='selected';deliveryFormat='original';panel='delivery';await tick();modal.showModal();
  }
- type OutputMode='raw'|'bundle'|'images';
- function copyOutput(ids:string[],mode:OutputMode){
+ const copiedLabels:Record<CopyMode,string>={raw:'已复制正文',images:'已复制图片',bundle:'已复制图文 · 粘贴效果由目标软件决定'};
+ function copyOutput(ids:string[],mode:CopyMode){
   const records=entriesFor(ids);
   if(!records.length)return;
   const output=originalOutput(records,$t);
-  const copyTo=records.length===1&&!selecting&&(mode==='raw'||mode==='images')?records[0].id:'';
+  const copyTo=records.length===1&&!selecting?records[0].id:'';
   dismissMenus();
   closePanel();
   return perform(async()=>{
    if(mode==='raw')await invoke('copy_text',{text:output.text});
-   if(mode==='bundle')await invoke('copy_bundle',{text:output.text,files:output.files,manifest:output.manifest});
+   if(mode==='bundle')await invoke('copy_bundle',{text:output.clipboardText,files:output.files,manifest:output.manifest});
    if(mode==='images'){
     if(output.files.length===1)await invoke('copy_image',{path:output.files[0].source});
     else await invoke('copy_images',{files:output.files});
    }
-   if(copyTo)copiedId=copyTo;
-   else announce(mode==='raw'?'已复制正文':mode==='images'?'已复制图片':'已复制图文 · 粘贴效果由目标软件决定');
+   if(copyTo)copied={id:copyTo,mode};
+   else announce(copiedLabels[mode]);
   });
  }
  function copySingleImage(image:Attachment){
@@ -257,6 +276,7 @@
  }
  const selectionHasText=$derived(chosen.some(entry=>entry.text.trim()));
  const selectionHasImages=$derived(chosen.some(entry=>entry.attachments.length));
+ const selectionCopyMode=$derived(defaultCopyMode(selectionHasText,selectionHasImages));
  const suggestions=$derived(text.match(/#([\p{L}\p{N}_-]*)$/u)?.[1]);
  let editBaseline=$state('');
  const editFingerprint=$derived(editorSignature({text,type,tagInput,attachments,references,projectId:draftProjectId}));
@@ -282,6 +302,9 @@
   try{await action();}catch(e){error=String(e);retryAction=()=>perform(action);}finally{busy=false;}
  }
  onMount(()=>{
+  const clearCopyOptions=()=>{copyOptionsFor='';};
+  window.addEventListener('scroll',clearCopyOptions,true);
+  window.addEventListener('resize',clearCopyOptions);
   const media=matchMedia('(prefers-color-scheme: dark)');systemDark=media.matches;const changed=()=>systemDark=media.matches;media.addEventListener('change',changed);
   let stopped=false;const cleanup:(()=>void)[]=[];
   const storage=(event:StorageEvent)=>{if(event.key?.startsWith('devpad-export')||event.key==='devpad-default-template')reloadTemplates();if(event.key==='devpad-theme')theme=preference();if(event.key==='devpad-notebook-mode'){notebookMode=localStorage.getItem('devpad-notebook-mode')==='true';if(!auxiliary)void run(async()=>{await syncNotebook();if(!notebookMode)await invoke('edge_restore',{animate:false});});}if(event.key==='devpad-notebook-delay'){notebookDelay=Number(localStorage.getItem('devpad-notebook-delay'))||30;if(!auxiliary)void syncNotebook();}};window.addEventListener('storage',storage);window.addEventListener('devpad-templates-changed',reloadTemplates);
@@ -293,7 +316,7 @@
     listen('prepare-update',()=>{if(canDraft){updateLocked=true;if(dirty&&!busy)void persistDraft().catch(e=>draftError=String(e));}}),
     listen('update-installing',()=>updateLocked=true),
     listen('update-install-failed',()=>updateLocked=false),
-    getCurrentWindow().listen('notebook-collapse-request',()=>{if(!auxiliary)void collapseNotebook();}),
+    getCurrentWindow().listen('notebook-collapse-request',()=>{if(!auxiliary)void collapseNotebook(true);}),
     listen('notebook-expanded',()=>{notebookSleeping=false;notebookActivity();}),
     listen('tray-hide',()=>{notebookSleeping=true;if(canDraft&&dirty&&!busy)void persistDraft().catch(e=>draftError=String(e));if(panelWindow&&panel==='filters')void sendMain('filters',{filterTypes:[...filterTypes],status,tag,search});}),
     getCurrentWindow().listen<number>('request-exit',event=>{if(!canDraft)return;void run(async()=>{if(busy||!initialized){error=$t('正在保存或处理图片，请完成后再退出');await invoke('exit_decision',{approve:false,revision:event.payload});return;}try{await persistDraft();await invoke('exit_decision',{approve:true,revision:event.payload});}catch(e){error=String(e);await invoke('exit_decision',{approve:false,revision:event.payload});}});}),
@@ -310,11 +333,11 @@
    await refresh();
    if(auxiliary)await acceptAux(await invoke('window_payload'));
    await refreshDrafts(true);initialized=true;ready=true;if(canDraft&&dirty)await persistDraft();
-   if(windowKind==='more'){startup=await invoke<boolean>('startup_enabled');pinned=await (await Window.getByLabel('main'))?.isAlwaysOnTop()??false;}
+   if(windowKind==='more')await readDesktopPreferences();
   }).finally(async()=>{if(auxiliary){if(!initialized)initializationError=error||$t('窗口初始化失败');await tick();await invoke('window_ready');}});
   void run(async()=>{if(!isTauri()){await refresh();ready=true;initialized=true;}if(isTauri()){const win=getCurrentWindow();if(!auxiliary && localStorage.getItem('devpad-main-on-top')==='true')await win.setAlwaysOnTop(true);maximized=await win.isMaximized();const resize=await win.onResized(async()=>{maximized=await win.isMaximized();});const moved=await win.onMoved(notebookActivity);const close=await win.onCloseRequested(async(event)=>{if(annotating){event.preventDefault();return;}if(panelWindow&&panel==='filters')await sendMain('filters',{filterTypes:[...filterTypes],status,tag,search});if(!auxiliary){event.preventDefault();return;}if(busy){event.preventDefault();announce('正在处理，请稍后再关闭');return;}if(dirty&&!allowClose&&editorWindow){event.preventDefault();try{await persistDraft();allowClose=true;await win.close();}catch(e){error=$t('草稿保存失败：{error}',{error:String(e)});}return;}if(dirty&&!allowClose){event.preventDefault();if(await confirmation.ask('当前文字、图片和引用尚未保存。你可以继续编辑，或放弃后关闭窗口。','放弃并关闭',editorWindow?'关闭写笔记窗口？':'关闭 DevPad？','继续编辑')){allowClose=true;await win.close();}} });if(stopped){resize();close();moved();}else cleanup.push(resize,close,moved);}}).finally(async()=>{if(isTauri()&&!auxiliary){await tick();await invoke('window_ready');}});
   if(!auxiliary&&isTauri()){void syncNotebook();document.addEventListener('keydown',notebookActivity);}
-  return()=>{document.removeEventListener('keydown',notebookActivity);stopped=true;window.removeEventListener('storage',storage);window.removeEventListener('devpad-templates-changed',reloadTemplates);media.removeEventListener('change',changed);cleanup.forEach(f=>f());};
+  return()=>{document.removeEventListener('keydown',notebookActivity);stopped=true;window.removeEventListener('scroll',clearCopyOptions,true);window.removeEventListener('resize',clearCopyOptions);window.removeEventListener('storage',storage);window.removeEventListener('devpad-templates-changed',reloadTemplates);media.removeEventListener('change',changed);cleanup.forEach(f=>f());};
  });
  async function openPanel(value:Panel){
   dismissMenus();
@@ -323,10 +346,13 @@
    if(value==='new-project')creatingProject=true;
    returnFromNavigation=false;navigationOpen=true;return;
   }
-   if(isTauri()&&value&&['more','help','updates','templates','agents'].includes(value)){
+   if(auxiliary&&value&&['more','help','updates','templates','agents'].includes(value)){
     await run(async()=>{await invoke('open_aux',{kind:value,payload:snapshot()});});return;
    }
-  panel=value;await tick();if(value&&!modal.open)modal.showModal();
+  panel=value;await tick();
+  if(!value||panel!==value||modal.open)return;
+  modal.showModal();
+  if(value==='more'&&isTauri())void run(readDesktopPreferences);
  }
  async function afterSurfaceClose(dialog:HTMLDialogElement,release:()=>void){
   if(dialog.open)return;
@@ -462,8 +488,23 @@
   await showEditor();
  }
  function toggleSelectionOff(){dismissMenus();selecting=false;selected=[];anchor='';}
- function select(e:Entry,event:MouseEvent){selecting=true;expanded=false;if(event.shiftKey&&anchor){const a=visible.findIndex(x=>x.id===anchor),b=visible.findIndex(x=>x.id===e.id);if(a>=0){selected=[...new Set([...selected,...visible.slice(Math.min(a,b),Math.max(a,b)+1).map(x=>x.id)])];return;}}selected=selected.includes(e.id)?selected.filter(id=>id!==e.id):[...selected,e.id];anchor=e.id;}
- function selectAll(){selecting=true;expanded=false;selected=visible.map(e=>e.id);}
+ function selectTo(entry:Entry){
+  const previous=visible.findIndex(note=>note.id===anchor);
+  const start=previous<0?0:previous,end=visible.findIndex(note=>note.id===entry.id);
+  if(end<0)return;
+  const range=visible.slice(Math.min(start,end),Math.max(start,end)+1);
+  selected=[...new Set([...selected,...range.map(note=>note.id)])];
+  if(previous<0)anchor=visible[start].id;
+ }
+ function select(e:Entry,event:MouseEvent){
+  selecting=true;expanded=false;copyOptionsFor='';
+  if(event.shiftKey){selectTo(e);return;}
+  if(selected.includes(e.id)){
+   selected=selected.filter(id=>id!==e.id);
+   if(anchor===e.id)anchor=selected.at(-1)||'';
+  }else{selected=[...selected,e.id];anchor=e.id;}
+ }
+ function selectAll(){selecting=true;expanded=false;selected=visible.map(e=>e.id);anchor=selected[0]||'';}
  async function batch(next:string,ids=selected){
   if(busy||!ids.length)return;
   if(next==='Delete'&&!await confirmation.ask($t('将删除选中的 {count} 条记录，此操作不可撤销。',{count:ids.length}),'删除记录','删除这些记录？','保留记录'))return;
@@ -542,6 +583,7 @@
   const target=event.target as HTMLElement;
   const input=['INPUT','TEXTAREA','SELECT'].includes(target.tagName)||target.isContentEditable;
   if(event.key==='Escape'){
+   if(copyOptionsFor){event.preventDefault();copyOptionsFor='';return;}
    if(imageModal?.open||modal?.open)return;
    if(compactNavigation)return;
    if(navigationOpen&&(target.closest('.project-navigation')||target===projectTrigger)){event.preventDefault();void closeNavigation();return;}
@@ -563,7 +605,7 @@
   if(command&&lower==='f'&&!editorWindow){event.preventDefault();void openSearch();}
   if(command&&lower==='a'&&!input&&!editorWindow&&!event.shiftKey&&!event.altKey){event.preventDefault();selectAll();}
   if(command&&lower==='c'&&!input&&selecting&&selected.length&&!window.getSelection()?.toString()){
-   event.preventDefault();void copyOutput(selected,selectionHasText?'raw':'images');
+   event.preventDefault();void copyOutput(selected,selectionCopyMode);
   }
   if(event.altKey&&/^[1-6]$/.test(event.key)&&!input){event.preventDefault();type=types[Number(event.key)-1];editorDetails=true;void showEditor();}
  }
@@ -581,7 +623,7 @@
  }
  async function windowAction(action:'minimize'|'maximize'|'close'|'drag'){if(!isTauri())return;await run(async()=>{const win=getCurrentWindow();if(action==='minimize')await win.minimize();if(action==='maximize'){await win.toggleMaximize();maximized=await win.isMaximized();}if(action==='close')await win.close();if(action==='drag')await win.startDragging();});}
  async function entryMenu(entry:Entry,trigger:HTMLElement){
-  activeEntry=entry;await recordMenu.show(trigger);
+  copyOptionsFor='';activeEntry=entry;await recordMenu.show(trigger);
  }
 </script>
 
@@ -604,8 +646,8 @@
   <div class="drag-space" role="presentation" onmousedown={(e)=>{if(e.button===0&&e.detail===1)void windowAction('drag');}} ondblclick={()=>windowAction('maximize')}></div>
   <button bind:this={searchTrigger} class="icon-button" aria-label={$t('搜索笔记')} aria-expanded={searching} title={$t('搜索 · {key} F',{key:modifier})} onclick={()=>searching?closeSearch():openSearch()}><Icon name="search"/></button>
   <button class="journal-select" aria-pressed={selecting} aria-label={selecting?$t('退出多选'):$t('多选')} title={selecting?$t('退出多选'):$t('多选')} onclick={toggleSelection}><Icon name="check" size={16}/><span>{$t('多选')}</span></button>
-  <button data-notebook-collapse class="icon-button" aria-label={$t('收起为悬浮笔记本')} title={$t('收起为悬浮笔记本')} onclick={collapseNotebook}><Icon name="notebook" size={18}/></button>
-  <button class="icon-button" aria-label={$t('更多')} title={$t('设置与工具')} onclick={()=>openPanel('more')}><Icon name="more"/></button>
+  <button data-notebook-collapse class="icon-button" aria-label={$t('收起为悬浮笔记本')} title={$t('收起为悬浮笔记本')} onclick={()=>collapseNotebook()}><Icon name="notebook" size={18}/></button>
+  <button class="icon-button settings-trigger" aria-label={$t('更多')} aria-haspopup="dialog" aria-expanded={panel==='more'} title={$t('设置与工具')} onclick={()=>openPanel('more')}><Icon name="more"/></button>
  <div class="window-controls"><button aria-label={$t('最小化')} title={$t('最小化')} onclick={()=>windowAction('minimize')}><Icon name="minimize" size={15}/></button><button aria-label={maximized?$t('还原窗口'):$t('最大化')} title={maximized?$t('还原窗口'):$t('最大化')} onclick={()=>windowAction('maximize')}><Icon name={maximized?'restore':'maximize'} size={13}/></button><button class="window-close" aria-label={$t('关闭窗口')} title={$t('关闭')} onclick={()=>windowAction('close')}><Icon name="close" size={17}/></button></div>
  </header>
  {/if}
@@ -666,16 +708,20 @@
           {#if !projectId}<span>{displayProject(projects.find(p=>p.id===e.projectId))}</span>{/if}
           {#if e.type!=='Note'}<span>{labels[e.type]}</span>{#if e.status==='Done'}<span>{labels[e.status]}</span>{/if}{/if}
          </div>
-         {#if !selecting}
+         {#if selecting}
+          <button class="range-action" onclick={()=>selectTo(e)}>{$t('选择到这里')}</button>
+         {:else}
           <div class="journal-note-actions">
-           <button class="icon-button journal-copy" disabled={busy} aria-label={e.text.trim()?$t('复制正文'):$t('复制图片')} title={e.text.trim()?$t('复制正文'):$t('复制图片')} onclick={()=>copyOutput([e.id],e.text.trim()?'raw':'images')}><Icon name={copiedId===e.id?'check':'copy'} size={16}/></button>
+           <CopyControl hasText={!!e.text.trim()} hasImages={!!e.attachments.length} disabled={busy}
+            copied={copied?.id===e.id} open={copyOptionsFor===e.id} onopen={open=>offerCopies(e.id,open)}
+            oncopy={mode=>copyOutput([e.id],mode)}/>
            <button class="icon-button note-menu" aria-label={$t('记录操作 {note}',{note:e.text.slice(0,30)||$t('图片记录')})} aria-expanded={recordMenuOpen&&activeEntry?.id===e.id} aria-controls="record-actions" aria-haspopup="menu" popovertarget="record-actions" title={$t('记录操作')} onclick={(event)=>{event.preventDefault();void entryMenu(e,event.currentTarget);}}><Icon name="more" size={16}/></button>
           </div>
          {/if}
         </div>
-        {#if copiedId===e.id}<span class="sr-only" role="status">{e.text.trim()?$t('已复制正文'):$t('已复制图片')}</span>{/if}
+        {#if copied?.id===e.id}<span class="sr-only" role="status">{$t(copiedLabels[copied.mode])}</span>{/if}
         {#if e.text}<p class="note-text" dir="auto">{e.text}</p>{/if}
-        {#if e.attachments.length}<div class="note-images">{#each e.attachments as a}<button class="image-button" onclick={(event)=>{if(event.ctrlKey||event.metaKey||event.shiftKey)select(e,event);else void showImage(a,event.currentTarget);}}><img loading="lazy" src={convertFileSrc(a.path)} alt={a.name}/></button>{/each}</div>{/if}
+        {#if e.attachments.length}<div class="note-images">{#each e.attachments as a}<button class="image-button" onclick={(event)=>{if(selecting||event.ctrlKey||event.metaKey||event.shiftKey)select(e,event);else void showImage(a,event.currentTarget);}}><img loading="lazy" src={convertFileSrc(a.path)} alt={a.name}/></button>{/each}</div>{/if}
        </div>
       </article>
      {:else}
@@ -691,11 +737,16 @@
    {#if selecting}
     <section class="selection-toolbar journal-selection" aria-label={$t('批量操作')}>
      <strong aria-live="polite">{$t('已选 {count} 条',{count:selected.length})}</strong>
-     <button disabled={busy||!selected.length} onclick={()=>copyOutput(selected,selectionHasText?'raw':'images')}>{selectionHasText||!selected.length?$t('复制正文'):$t('复制图片')}</button>
+     <button disabled={busy||!selected.length} onclick={()=>copyOutput(selected,selectionCopyMode)}>{selectionCopyMode==='bundle'?$t('复制图文'):selectionCopyMode==='images'?$t('复制图片'):$t('复制正文')}</button>
      <button aria-expanded={batchMenuOpen} aria-controls="batch-actions" aria-haspopup="menu" popovertarget="batch-actions" onclick={e=>{e.preventDefault();void selectionMenu.show(e.currentTarget);}}>{$t('更多')}</button>
      <ActionPopover id="batch-actions" label={$t('批量操作选项')} bind:this={selectionMenu} bind:open={batchMenuOpen}>
        <button role="menuitem" tabindex="-1" onclick={()=>{selectAll();dismissMenus();}}>{$t('全选当前结果')}</button>
-       <button role="menuitem" tabindex="-1" disabled={busy||!selectionHasImages} onclick={()=>copyOutput(selected,'bundle')}>{$t('复制图文')}</button>
+       {#if selectionHasImages}
+        {#if selectionHasText}
+         <button role="menuitem" tabindex="-1" disabled={busy} onclick={()=>copyOutput(selected,'raw')}>{$t('复制正文')}</button>
+         <button role="menuitem" tabindex="-1" disabled={busy} onclick={()=>copyOutput(selected,'images')}>{$t('复制图片')}</button>
+        {:else}<button role="menuitem" tabindex="-1" disabled={busy} onclick={()=>copyOutput(selected,'bundle')}>{$t('复制图文')}</button>{/if}
+       {/if}
        <hr/>
        <button role="menuitem" tabindex="-1" disabled={busy||!selected.length} onclick={()=>openPanel('delivery')}>{$t('导出…')}</button>
        <button role="menuitem" tabindex="-1" disabled={busy||!selected.length} onclick={()=>openMove(selected)}>{$t('移动项目')}</button>
@@ -763,8 +814,12 @@
 {#snippet recordActions(entry:Entry)}
  <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>edit(entry)}>{$t('编辑记录')}</button>
  {#if entry.attachments.length}
-  <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'bundle')}>{$t('复制图文')}</button>
-  {#if entry.text.trim()}<button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'images')}>{$t('复制图片')}</button>{/if}
+  {#if entry.text.trim()}
+   <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'raw')}>{$t('复制正文')}</button>
+   <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'images')}>{$t('复制图片')}</button>
+  {:else}
+   <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'bundle')}>{$t('复制图文')}</button>
+  {/if}
  {/if}
  <hr/>
  <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>openMove([entry.id])}>{$t('移动到项目…')}</button>

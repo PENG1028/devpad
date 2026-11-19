@@ -63,10 +63,14 @@ async fn resize_surface(main:&WebviewWindow,p:PhysicalPosition<i32>,from:Physica
  }).await.map_err(err)?
 }
 #[tauri::command]
-pub async fn notebook_collapse(app:tauri::AppHandle,target:tauri::LogicalPosition<f64>)->Result<()> {
+pub async fn notebook_collapse(app:tauri::AppHandle,target:tauri::LogicalPosition<f64>,automatic:Option<bool>)->Result<()> {
  let main=app.get_webview_window("main").ok_or(crate::locale::language(&app).text("主窗口未打开"))?;
+ let automatic=automatic.unwrap_or(false);
  if !main.is_visible().map_err(err)?||main.is_minimized().map_err(err)?||main.is_maximized().map_err(err)?{return Ok(())}
- if app.webview_windows().iter().any(|(label,w)|label!="main"&&w.is_visible().unwrap_or(false)){return Err(crate::locale::language(&app).text("请先关闭辅助窗口，再收起笔记本").into())}
+ if automatic&&(dragging()||inside(&main)?){return Ok(())}
+ if app.webview_windows().iter().any(|(label,w)|label!="main"&&w.is_visible().unwrap_or(false)){
+  if automatic{return Ok(())}return Err(crate::locale::language(&app).text("请先关闭辅助窗口，再收起笔记本").into())
+ }
  let p=main.outer_position().map_err(err)?;let size=main.outer_size().map_err(err)?;
  let c=Corner{right:true,bottom:false};
  let scale=main.scale_factor().map_err(err)?;
@@ -74,9 +78,11 @@ pub async fn notebook_collapse(app:tauri::AppHandle,target:tauri::LogicalPositio
  let small=PhysicalSize::new((36.*scale).round()as u32,(36.*scale).round()as u32);
  let client=main.inner_position().map_err(err)?;
  let destination=PhysicalPosition::new(client.x+(target.x*scale).round()as i32,client.y+(target.y*scale).round()as i32);
+ let pinned=main.is_always_on_top().map_err(err)?;
  let animate={let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;
+  if automatic&&(!dock.enabled||dock.busy||dock.confirm||!dock.idle_since.is_some_and(|since|since.elapsed()>=Duration::from_secs(dock.delay))){return Ok(())}
   if dock.hidden||dock.moving{return Ok(())}if dock.busy||dock.confirm{return Err(crate::locale::language(&app).text("请先完成当前操作，再收起笔记本").into())}
-  dock.pinned=main.is_always_on_top().map_err(err)?;dock.moving=true;dock.prepared=false;dock.dot=false;dock.origin=Some(p);dock.full_size=Some(size);dock.corner=c;dock.anchor=Some(destination);!dock.reduced_motion};
+  dock.pinned=pinned;dock.moving=true;dock.prepared=false;dock.dot=false;dock.origin=Some(p);dock.full_size=Some(size);dock.corner=c;dock.anchor=Some(destination);!dock.reduced_motion};
  let result:Result<()>=async {
   main.set_min_size(Some(tauri::LogicalSize::new(24.,24.))).map_err(err)?;
   main.set_resizable(false).map_err(err)?;

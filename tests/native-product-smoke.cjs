@@ -2,7 +2,7 @@
 const {chromium}=require('@playwright/test');
 const {spawn}=require('node:child_process');const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),net=require('node:net'),assert=require('node:assert/strict');
 const exe=process.env.DEVPAD_TEST_EXE||path.resolve('src-tauri/target/x86_64-pc-windows-msvc/release/devpad.exe');
-const root=fs.mkdtempSync(path.join(os.tmpdir(),'devpad-native-smoke-'));let app,browser,port;
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'devpad-native-smoke-'));let app,browser,port,testIdentifier;
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function start(){port=await new Promise(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});app=spawn(exe,['--autostart'],{windowsHide:true,stdio:'ignore',env:{...process.env,DEVPAD_DATA_DIR:root,DEVPAD_TEST_STARTUP:"1",WEBVIEW2_USER_DATA_FOLDER:path.join(root,"webview"),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port}`}});for(let i=0;i<120;i++){if(app.exitCode!==null)throw Error('Isolated app exited before startup');try{browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`);break;}catch{await delay(250);}}if(!browser)throw Error('Isolated WebView startup timeout');let main;for(let i=0;i<100;i++){main=browser.contexts().flatMap(c=>c.pages()).find(p=>!new URL(p.url()).searchParams.has('window')&&p.url().includes('tauri'));if(main){try{const loaded=await invoke(main,'load');assert.equal(path.resolve(loaded.dataDir),path.resolve(root));return main;}catch{}}await delay(100);}throw Error('Isolated main page not ready');}
 async function invoke(page,cmd,args={}){return page.evaluate(({cmd,args})=>window.__TAURI_INTERNALS__.invoke(cmd,args),{cmd,args});}
@@ -10,6 +10,21 @@ async function auxiliary(main,kind,payload={}){const label=await invoke(main,'op
 async function stop(){if(browser){await browser.close();browser=null;}if(app&&app.exitCode===null){app.kill();await new Promise(resolve=>app.once('exit',resolve));}await delay(400);}
 (async()=>{try {
  let main=await start();assert.ok(['develop','stable'].includes((await invoke(main,'update_info')).channel));
+ testIdentifier=await invoke(main,'plugin:app|identifier');
+ const geometry=()=>Promise.all(['outer_position','outer_size'].map(name=>invoke(main,'plugin:window|'+name,{label:'main'})));
+ const originalGeometry=await geometry();
+ const burst=main.locator('.settings-trigger');
+ for(let i=0;i<12;i++){
+  await burst.evaluate(button=>{for(let n=0;n<4;n++)button.click();});
+  await main.getByRole('tablist').waitFor();
+  assert.equal(browser.contexts().flatMap(context=>context.pages()).length,1);
+  assert.equal(await main.locator('[role=alert]').count(),0);
+  await main.locator('.settings-sheet .sheet-header button').evaluate(button=>button.click());
+  await main.locator('dialog.settings-sheet[open]').waitFor({state:'hidden'});
+ }
+ assert.deepEqual(await geometry(),originalGeometry);
+ const opening=await Promise.all(Array.from({length:6},()=>invoke(main,'open_aux',{kind:'more',payload:{}})));
+ assert.deepEqual([...new Set(opening)],['more']);
  const settings=await auxiliary(main,'more');
  const tap=control=>control.evaluate(node=>node.click());
  const language=settings.locator('.settings-page:not([hidden]) [role=combobox]').nth(1);
@@ -88,5 +103,16 @@ async function stop(){if(browser){await browser.close();browser=null;}if(app&&ap
  const exited=new Promise(resolve=>app.once('exit',resolve));
  await invoke(main,'resident_action',{action:'exit'}).catch(()=>{});
  await Promise.race([exited,delay(2500)]);
- console.log('PASS hidden native app: 20 UI and native languages, window titles, pinning, draft recovery and persistent project navigation');
-}finally{await stop();const resolved=fs.realpathSync(root),temp=fs.realpathSync(os.tmpdir());assert.ok(resolved.startsWith(temp+path.sep)&&path.basename(resolved).startsWith('devpad-native-smoke-'));await fs.promises.rm(resolved,{recursive:true,force:true,maxRetries:18,retryDelay:250});}})().catch(e=>{console.error(e);process.exitCode=1;});
+ console.log('PASS hidden native app: rapid settings clicks, stable geometry, concurrent window opens, 20 languages, pinning, draft recovery and project navigation');
+}finally{
+ await stop();
+ const resolved=fs.realpathSync(root),temp=fs.realpathSync(os.tmpdir());
+ assert.ok(resolved.startsWith(temp+path.sep)&&path.basename(resolved).startsWith('devpad-native-smoke-'));
+ await fs.promises.rm(resolved,{recursive:true,force:true,maxRetries:18,retryDelay:250});
+ if(process.platform==='win32' && process.env.LOCALAPPDATA && /^local\.devpad\.test-[0-9a-f]{1,16}$/.test(testIdentifier||'')){
+  // WebView2 may leave an empty default directory even with an explicit test profile.
+  await fs.promises.rmdir(path.join(process.env.LOCALAPPDATA,testIdentifier)).catch(error=>{
+   if(error.code!=='ENOENT' && error.code!=='ENOTEMPTY')throw error;
+  });
+ }
+}})().catch(e=>{console.error(e);process.exitCode=1;});

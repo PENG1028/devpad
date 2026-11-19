@@ -2,6 +2,11 @@ export const types = ['Bug','UX','Feature','Idea','Question','Note'] as const;
 export type Attachment = {id:string;name:string;path:string};
 export type Entry = {revision?:number;id:string;projectId:string;type:string;text:string;createdAt:string;updatedAt:string;tags:string[];attachments:Attachment[];status:string;references:string[]};
 export type Project = {id:string;name:string};
+export type CopyMode = 'raw' | 'bundle' | 'images';
+export function defaultCopyMode(hasText:boolean, hasImages:boolean):CopyMode {
+ if (!hasImages) return 'raw';
+ return hasText ? 'bundle' : 'images';
+}
 export function editorSignature(value:{projectId:string;type:string;text:string;tagInput:string;attachments:Attachment[];references:string[]}){
  return JSON.stringify({projectId:value.projectId,type:value.type,text:value.text.replace(/\r\n?/g,'\n'),tags:tagsOf(value.tagInput).sort(),attachments:value.attachments.map(a=>[a.id,a.name,a.path]),references:[...value.references]});
 }
@@ -63,9 +68,13 @@ export function compose(project:string,entries:Entry[],all:Entry[]=entries,batch
 
 export function originalOutput(entries:Entry[],translate:TranslateMessage=formatMessage){
  const output=compose('',entries,entries,'',undefined,translate);
+ const clipboardText=output.manifest.records.map(record=>[
+  record.text,
+  ...record.files.map(file=>'['+translate('图片')+'] '+file.originalName),
+ ].filter(Boolean).join('\n')).join('\n\n');
  const markdown=output.manifest.records.map(record=>[
   record.text,
   ...record.files.map(file=>`![${translate('图片')}](<${encodeURIComponent(file.name)}>)`),
  ].filter(Boolean).join('\n\n')).join('\n\n');
- return {...output,markdown,manifest:{...output.manifest,kind:'journal'}};
+ return {...output,markdown,clipboardText,manifest:{...output.manifest,kind:'journal'}};
 }

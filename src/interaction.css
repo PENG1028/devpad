@@ -134,6 +134,14 @@ dialog[open]::backdrop { opacity: 1; }
 .delivery-format [aria-pressed=true] { background:var(--bg); box-shadow:0 0 0 1px var(--line); }
 .sheet.standalone.settings-sheet .sheet-header { display:none; }
 .sheet.settings-sheet .sheet-body { padding-inline:clamp(16px,4vw,24px); }
+.sheet.settings-sheet:not(.standalone) { width:min(480px,calc(100vw - 24px)); max-height:min(675px,calc(100dvh - 24px)); }
+.journal-note-head .range-action { min-height:30px; flex:none; max-width:55%; padding:3px 8px; font-size:12px; line-height:16px; color:var(--secondary); text-align:end; }
+.journal-note-head .range-action:is(:hover,:focus-visible) { color:var(--blue); background:var(--selected); }
+.note-menu[aria-expanded=true], .settings-trigger[aria-expanded=true] { background:var(--hover); }
+@media (prefers-reduced-motion:no-preference) {
+ .note-menu[aria-expanded=true] svg, .settings-trigger[aria-expanded=true] svg { animation:more-press 200ms ease-out; }
+ @keyframes more-press { 0% { transform:scale(.82); } 55% { transform:scale(1.12); } 100% { transform:none; } }
+}
 .sheet.settings-sheet .sheet-body:focus-within { scroll-padding-top:44px; }
 .sheet-header h2 { font-weight:500; letter-spacing:normal; }
 .action-popover button:focus-visible { outline-offset: -2px; }

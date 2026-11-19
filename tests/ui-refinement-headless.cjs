@@ -49,7 +49,7 @@ const server=http.createServer((req,res)=>{
      if(cmd==='load')return JSON.parse(JSON.stringify(data));
      if(cmd==='create_project'){const project={id:'new-'+data.projects.length,name:args.name};data.projects.push(project);return project;}
      if(cmd==='save_entry')data.entries.unshift(args.entry);
-     if(cmd==='copy_text'&&window.failCopy){window.failCopy=false;throw Error('剪贴板暂时不可用');}
+     if(cmd==='copy_bundle'&&window.failCopy){window.failCopy=false;throw Error('剪贴板暂时不可用');}
      if(cmd==='move_entries')data.entries.forEach(entry=>{if(args.ids.includes(entry.id))entry.projectId=args.projectId;});
      if(cmd==='export_bundle')return 'fixture-export';
      return null;
@@ -66,18 +66,30 @@ const server=http.createServer((req,res)=>{
   assert.deepEqual([...new Set(await toolbarCenters())],[24]);
   const firstText='记录想法 0\n完整保留正文';
 
-  await notes.first().getByRole('button',{name:'复制正文',exact:true}).click();
-  assert.equal((await lastArgs('copy_text')).text,firstText);
-  await notes.nth(1).getByRole('button',{name:'复制图片',exact:true}).click();
-  assert.match((await lastArgs('copy_image')).path,/#1$/);
-  await notes.first().getByRole('button',{name:'记录操作',exact:false}).click();
-  await page.getByRole('menuitem',{name:'复制图文',exact:true}).click();
+  const richCopy=notes.first().getByRole('button',{name:'复制图文',exact:true});
+  await richCopy.click();
   const single=await lastArgs('copy_bundle');
-  assert.equal(single.text,firstText);
+  assert.equal(single.text,firstText+'\n[图片] 示意图.png');
   assert.deepEqual(single.manifest.records.map(entry=>entry.id),['0']);
   assert.equal(single.files.length,1);
   assert.ok(!single.files[0].mark);
   assert.match(single.files[0].name,/^001-/);
+  await richCopy.press('ArrowDown');
+  const onlyText=notes.first().getByRole('button',{name:'复制正文',exact:true});
+  assert.ok(await onlyText.evaluate(n=>n===document.activeElement));
+  await onlyText.press('Enter');
+  assert.equal((await lastArgs('copy_text')).text,firstText);
+  await notes.nth(1).getByRole('button',{name:'复制图片',exact:true}).click();
+  assert.match((await lastArgs('copy_image')).path,/#1$/);
+  await richCopy.hover();
+  await notes.first().getByRole('button',{name:'复制图片',exact:true}).click();
+  assert.match((await lastArgs('copy_image')).path,/#0$/);
+  const rowMenu=notes.first().locator('.note-menu');
+  await rowMenu.evaluate(n=>{n.click();n.click();});
+  assert.equal(await rowMenu.getAttribute('aria-expanded'),'false');
+  await rowMenu.click();
+  await page.getByRole('menuitem',{name:'复制正文',exact:true}).click();
+  assert.equal((await lastArgs('copy_text')).text,firstText);
 
   const list=page.locator('.notes-scroll');
   await list.evaluate(node=>node.scrollTop=180);
@@ -104,6 +116,17 @@ const server=http.createServer((req,res)=>{
 
   await page.getByRole('button',{name:'多选',exact:true}).click();
   const boxes=page.locator('.selection-check');
+  const ranges=page.getByRole('button',{name:'选择到这里',exact:true});
+  const selection=()=>boxes.evaluateAll(nodes=>nodes.flatMap((n,i)=>n.getAttribute('aria-pressed')==='true'?[i]:[]));
+  await ranges.nth(2).click();
+  assert.deepEqual(await selection(),[0,1,2]);
+  await boxes.nth(6).click();
+  await ranges.nth(4).click();
+  assert.deepEqual(await selection(),[0,1,2,4,5,6]);
+  await boxes.nth(3).click({modifiers:['Shift']});
+  assert.deepEqual(await selection(),[0,1,2,3,4,5,6]);
+  await page.getByRole('button',{name:'退出多选',exact:true}).click();
+  await page.getByRole('button',{name:'多选',exact:true}).click();
   await boxes.nth(2).click();
   await boxes.nth(0).click();
   const toolbar=page.getByRole('region',{name:'批量操作'});
@@ -115,12 +138,16 @@ const server=http.createServer((req,res)=>{
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('article.selected').count(),2);
   assert.equal(await toolbar.getByRole('button',{name:'更多'}).getAttribute('aria-expanded'),'false');
+  await page.keyboard.press('Control+c');
+  assert.deepEqual((await lastArgs('copy_bundle')).manifest.records.map(note=>note.id),['0','2']);
   await page.evaluate(()=>window.failCopy=true);
-  await toolbar.getByRole('button',{name:'复制正文',exact:true}).click();
+  await toolbar.getByRole('button',{name:'复制图文',exact:true}).click();
   await page.getByRole('alert').getByText('剪贴板暂时不可用').waitFor();
   await boxes.nth(1).click();
   await page.getByRole('button',{name:'重试',exact:true}).click();
-  assert.equal((await lastArgs('copy_text')).text,firstText+'\n\n记录想法 2\n完整保留正文');
+  const retried=await lastArgs('copy_bundle');
+  assert.deepEqual(retried.manifest.records.map(note=>note.id),['0','2']);
+  assert.equal(retried.text,firstText+'\n[图片] 示意图.png\n\n记录想法 2\n完整保留正文');
   await toolbar.getByText('更多',{exact:true}).click();
   await toolbar.getByRole('menuitem',{name:'导出…',exact:true}).click();
   await page.getByRole('button',{name:'导出图文',exact:true}).click();
@@ -307,7 +334,9 @@ const server=http.createServer((req,res)=>{
   await drawer.getByRole('button',{name:'收起项目列表'}).click();
   await page.waitForFunction(()=>document.querySelector('.journal-workspace').getBoundingClientRect().left===0);
   assert.deepEqual(errors,[]);
-  await require('./language-headless.cjs')(browser,page.url());
+  const notebookUrl=page.url();
+  await page.close();
+  await require('./language-headless.cjs')(browser,notebookUrl);
   console.log('PASS journal UI: persistent project navigation, responsive drawer, measured motion, menu focus, draft ownership, capture, export, tasks and compact layout');
  }finally{await browser.close();server.close();}
 })().catch(error=>{console.error(error);server.close();process.exitCode=1;});

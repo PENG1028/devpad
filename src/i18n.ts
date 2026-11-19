@@ -1,4 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { derived, writable } from 'svelte/store';
 import { exportTemplates, formatMessage, type ExportTemplate, type Project, type TranslateMessage } from './core';
 import registry from './locales/registry.json';
@@ -89,7 +90,15 @@ window.addEventListener('languagechange', () => system.set(systemLocale()));
 window.addEventListener('storage', event => {
  if (event.storageArea !== window.localStorage || (event.key !== key && event.key !== null)) return;
  preferenceChanged = true;
- preferenceStore.set(readPreference() ?? 'system');
+ preferenceStore.set(parsePreference(event.newValue) ?? 'system');
+});
+document.addEventListener('visibilitychange',()=>{
+ const preference=readPreference();
+ if(document.visibilityState==='visible' && preference)preferenceStore.set(preference);
+});
+if(isTauri())void listen<LanguagePreference>('locale-changed',event=>{
+ const preference=parsePreference(event.payload);
+ if(preference && readPreference()===preference)preferenceStore.set(preference);
 });
 
 const windowKind = new URLSearchParams(window.location.search).get('window') ?? 'main';

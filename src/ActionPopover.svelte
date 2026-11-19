@@ -5,19 +5,23 @@
  let { id, label, children, open = $bindable(false) }: {
   id: string; label: string; children: Snippet; open?: boolean
  } = $props();
- let surface: HTMLDivElement, anchor: HTMLElement | undefined;
+ let surface: HTMLDivElement, anchor: HTMLElement | undefined, pending: HTMLElement | undefined;
  const buttons = () => Array.from(surface.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
 
  export function close(restore = false) {
+  pending = undefined;
   if (!surface?.matches(':popover-open')) return;
   surface.hidePopover(); open = false;
   if (restore && anchor?.isConnected) anchor.focus({ preventScroll: true });
  }
  export async function show(trigger: HTMLElement) {
-  if (anchor === trigger && surface.matches(':popover-open')) { close(true); return; }
-  anchor = trigger;
+  if (pending === trigger || (anchor === trigger && surface.matches(':popover-open'))) { close(true); return; }
+  pending = trigger;
   await tick();
+  if (pending !== trigger) return;
+  pending = undefined;
   if (!trigger.isConnected) return;
+  anchor = trigger;
   placePopover(surface, trigger, true);
   if (!surface.matches(':popover-open')) surface.showPopover();
   open = true;
@@ -37,7 +41,7 @@
   event.preventDefault(); event.stopPropagation(); items[next].focus();
  }
  onMount(() => {
-  const scroll = (event: Event) => { if (!surface.contains(event.target as Node)) close(); };
+  const scroll = (event: Event) => { if (!(event.target instanceof Node) || !surface.contains(event.target)) close(); };
   const resize = () => close();
   window.addEventListener('scroll', scroll, true);
   window.addEventListener('resize', resize);

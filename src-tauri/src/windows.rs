@@ -20,9 +20,18 @@ pub struct EditorState {
 pub struct ExitState { pub active: bool, pub waiting: Option<String>, pub approved: HashMap<String,u64> }
 #[derive(Default)]
 pub struct Windows {
-    pub payloads: Mutex<HashMap<String,Value>>,
+    payloads: Mutex<HashMap<String,AuxWindow>>,
     pub editors: Mutex<HashMap<String,EditorState>>,
     pub exit: Mutex<ExitState>,
+}
+struct AuxWindow { payload: Value, ready: bool }
+
+pub fn mark_ready(window: &tauri::WebviewWindow) -> Result<()> {
+    let state = window.state::<Windows>();
+    if let Some(slot) = state.payloads.lock().map_err(err)?.get_mut(window.label()) {
+        slot.ready = true;
+    }
+    Ok(())
 }
 
 fn auxiliary_spec(kind: &str, language: Language) -> Option<(&'static str, f64, f64)> {
@@ -52,7 +61,7 @@ pub fn localize_title(window: &tauri::WebviewWindow, language: Language) -> taur
 
 #[tauri::command]
 pub fn window_payload(window:tauri::WebviewWindow,state:tauri::State<Windows>)->Result<Value>{
-    state.payloads.lock().map_err(err)?.get(window.label()).cloned().ok_or_else(||locale::language(window.app_handle()).text("窗口内容不可用，请关闭后重新打开").into())
+    state.payloads.lock().map_err(err)?.get(window.label()).map(|slot|slot.payload.clone()).ok_or_else(||locale::language(window.app_handle()).text("窗口内容不可用，请关闭后重新打开").into())
 }
 #[tauri::command]
 pub fn editor_dirty(window:tauri::WebviewWindow,state:tauri::State<Windows>,dirty:bool,busy:bool,entry:String,project:String,summary:String,fingerprint:String)->Result<()> {
@@ -92,7 +101,8 @@ pub async fn open_aux(app:tauri::AppHandle,kind:String,payload:Value)->Result<St
         let state=app.state::<Windows>();let mut editors=state.editors.lock().map_err(err)?;
         if !entry.is_empty() {if let Some(existing)=editors.values().find(|e|e.entry==entry){
             let label=existing.label.clone();drop(editors);
-            if let Some(win)=app.get_webview_window(&label){win.unminimize().map_err(err)?;win.show().map_err(err)?;win.set_focus().map_err(err)?;}
+            let ready=label=="main"||state.payloads.lock().map_err(err)?.get(&label).is_some_and(|slot|slot.ready);
+            if ready {if let Some(win)=app.get_webview_window(&label){win.unminimize().map_err(err)?;win.show().map_err(err)?;win.set_focus().map_err(err)?;}}
             return Ok(label)
         }}
         let label=format!("editor-{}",uuid::Uuid::new_v4());
@@ -100,9 +110,23 @@ pub async fn open_aux(app:tauri::AppHandle,kind:String,payload:Value)->Result<St
     } else if kind=="delivery"||kind=="image" {format!("{kind}-{}",uuid::Uuid::new_v4())}
     else if ["projects","filters","new-project"].contains(&kind.as_str()) {"organizer".into()} else {kind.clone()};
     let value=json!({"kind":kind,"data":payload});
-    app.state::<Windows>().payloads.lock().map_err(err)?.insert(label.clone(),value.clone());
+    let existing={
+        use std::collections::hash_map::Entry;
+        let state=app.state::<Windows>();
+        let mut slots=state.payloads.lock().map_err(err)?;
+        match slots.entry(label.clone()) {
+            Entry::Occupied(mut entry)=>{let slot=entry.get_mut();slot.payload=value.clone();Some(slot.ready)}
+            Entry::Vacant(entry)=>{entry.insert(AuxWindow{payload:value.clone(),ready:false});None}
+        }
+    };
+    if let Some(ready)=existing {
+        if let Some(win)=app.get_webview_window(&label){
+            win.emit("aux-input",value).map_err(err)?;
+            if ready {win.unminimize().map_err(err)?;win.show().map_err(err)?;win.set_focus().map_err(err)?;}
+        }
+        return Ok(label)
+    }
     let pinned=app.get_webview_window("main").and_then(|w|w.is_always_on_top().ok()).unwrap_or(false);
-    if let Some(win)=app.get_webview_window(&label){win.emit("aux-input",value).map_err(err)?;win.unminimize().map_err(err)?;win.show().map_err(err)?;win.set_focus().map_err(err)?;return Ok(label)}
     if let Err(e)=tauri::WebviewWindowBuilder::new(&app,&label,tauri::WebviewUrl::App(format!("index.html?window={}&instance={label}",if label=="organizer"{"organizer"}else{&kind}).into()))
         .title(title).inner_size(w,h).min_inner_size(420.,380.).decorations(false).visible(false).disable_drag_drop_handler().always_on_top(pinned).center().build() {
         cleanup(&app,&label);return Err(err(e))

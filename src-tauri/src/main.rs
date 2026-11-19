@@ -22,7 +22,7 @@ mod windows;
 use windows::{Windows,open_aux,window_payload,editor_dirty,editor_release,editor_windows,focus_editor,exit_decision};
 
 #[tauri::command]
-fn window_ready(window:tauri::WebviewWindow)->Result<()> {windows::localize_title(&window,locale::language(window.app_handle())).map_err(err)?;if window.state::<resident::Resident>().hidden.load(std::sync::atomic::Ordering::SeqCst){return Ok(())}if window.label()=="bubble"{return docking::tab_ready(window.app_handle(),&window)}window.show().map_err(err)?;window.set_focus().map_err(err)?;Ok(())}
+fn window_ready(window:tauri::WebviewWindow)->Result<()> {windows::localize_title(&window,locale::language(window.app_handle())).map_err(err)?;windows::mark_ready(&window)?;if window.state::<resident::Resident>().hidden.load(std::sync::atomic::Ordering::SeqCst){return Ok(())}if window.label()=="bubble"{return docking::tab_ready(window.app_handle(),&window)}window.show().map_err(err)?;window.set_focus().map_err(err)?;Ok(())}
 #[tauri::command]
 async fn return_to_list(app:tauri::AppHandle,window:tauri::WebviewWindow)->Result<()> {
     edge_restore(app,false).await?;window.hide().map_err(err)
