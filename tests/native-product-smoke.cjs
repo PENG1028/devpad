@@ -85,5 +85,8 @@ async function stop(){if(browser){await browser.close();browser=null;}if(app&&ap
  assert.equal(await picker.getAttribute('aria-expanded'),'true');
  await click(navigation.getByRole('button',{name:'收起项目列表'}));
  await navigation.waitFor({state:'hidden'});
- console.log('PASS hidden native app: draft recovery, persistent navigation, project changes and saved ownership');
-}finally{await stop();const resolved=fs.realpathSync(root),temp=fs.realpathSync(os.tmpdir());assert.ok(resolved.startsWith(temp+path.sep)&&path.basename(resolved).startsWith('devpad-native-smoke-'));fs.rmSync(resolved,{recursive:true,force:true});}})().catch(e=>{console.error(e);process.exitCode=1;});
+ const exited=new Promise(resolve=>app.once('exit',resolve));
+ await invoke(main,'resident_action',{action:'exit'}).catch(()=>{});
+ await Promise.race([exited,delay(2500)]);
+ console.log('PASS hidden native app: 20 UI and native languages, window titles, pinning, draft recovery and persistent project navigation');
+}finally{await stop();const resolved=fs.realpathSync(root),temp=fs.realpathSync(os.tmpdir());assert.ok(resolved.startsWith(temp+path.sep)&&path.basename(resolved).startsWith('devpad-native-smoke-'));await fs.promises.rm(resolved,{recursive:true,force:true,maxRetries:18,retryDelay:250});}})().catch(e=>{console.error(e);process.exitCode=1;});
