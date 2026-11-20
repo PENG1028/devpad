@@ -1,4 +1,4 @@
-"""Run with Python on Windows after building DevPad; uses a private desktop and clipboard."""
+"""Exercise the packaged WebView on an isolated local desktop or a disposable GitHub-hosted VM."""
 from pathlib import Path
 import sys, os, socket, subprocess, uuid, tempfile, shutil, time
 import ctypes as C
@@ -36,22 +36,31 @@ def name(h):
  b=C.create_unicode_buffer(256);needed=W.DWORD()
  if not getname(h,2,b,C.sizeof(b),C.byref(needed)):raise C.WinError(C.get_last_error())
  return b.value
-old=name(getstation());sid='DevPadQA'+uuid.uuid4().hex
 st=getstation()
-if mode=='clipboard':
- st=station(sid,0,0x10000000,None) or station(None,0,0x10000000,None)
- assert st and name(st)!=old
- assert setstation(st)
-# A non-interactive window station cannot show an HWND. The geometry probe uses an
-# unopened desktop on the interactive station, with no clipboard operations.
-deskname='Receiver'+uuid.uuid4().hex[:8];d=desktop(deskname,None,None,0,0x10000000,None)
-assert d and setdesk(d)
+hosted=(os.environ.get('GITHUB_ACTIONS')=='true' and os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted'
+        and os.environ.get('RUNNER_OS')=='Windows')
+# The hosted VM belongs to this job. Its installed WebView2 can start on the runner's
+# normal desktop. On a developer machine clipboard tests must use their own station.
+if hosted:
+ deskname=name(tdesk(K.GetCurrentThreadId()))
+else:
+ if mode=='clipboard':
+  old=name(st)
+  st=station('DevPadQA'+uuid.uuid4().hex,0,0x10000000,None) or station(None,0,0x10000000,None)
+  assert st and name(st)!=old
+  assert setstation(st)
+ deskname='Receiver'+uuid.uuid4().hex[:8]
+ d=desktop(deskname,None,None,0,0x10000000,None)
+ assert d and setdesk(d)
 tmp=Path(tempfile.mkdtemp(prefix='devpad-receiver-')).resolve()
-exe=tmp/'DevPad.exe';shutil.copy2(Path(os.environ.get('DEVPAD_TEST_EXE','src-tauri/target/release/devpad.exe')).resolve(),exe)
+exe=Path(os.environ.get('DEVPAD_TEST_EXE','src-tauri/target/release/devpad.exe')).resolve()
+if not hosted:
+ exe=Path(shutil.copy2(exe,tmp/'DevPad.exe'))
 with socket.socket() as listener:
  listener.bind(('127.0.0.1',0));port=listener.getsockname()[1]
 env=dict(os.environ,DEVPAD_DATA_DIR=str(tmp/'data'),WEBVIEW2_USER_DATA_FOLDER=str(tmp/'webview'),DEVPAD_TEST_STARTUP='1',DEVPAD_PRIVATE_RECEIVER=mode,DEVPAD_PASTE_PORT=str(port),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-port='+str(port)+' --disable-gpu')
-startup=StartupInfo();startup.cb=C.sizeof(startup);startup.desktop=name(st)+'\\'+deskname
+startup=StartupInfo();startup.cb=C.sizeof(startup)
+if not hosted:startup.desktop=name(st)+'\\'+deskname
 process=ProcessInfo()
 try:
  os.environ.update(env)
@@ -62,7 +71,7 @@ try:
  for _ in range(50):
   if tdesk(tid) and name(tdesk(tid))==deskname:break
   time.sleep(.1)
- assert name(tdesk(tid))==deskname, 'Private desktop identity'
+ assert name(tdesk(tid))==deskname, 'Unexpected desktop for receiver'
  probe=subprocess.run(['node',str(Path('tests/windows-paste.cjs').resolve())],env=env,timeout=110)
  sys.exit(probe.returncode)
 finally:

@@ -5,9 +5,13 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 (async()=>{
  const root=process.env.DEVPAD_DATA_DIR,port=process.env.DEVPAD_PASTE_PORT;
  assert.ok(root && port && ['clipboard','notebook'].includes(process.env.DEVPAD_PRIVATE_RECEIVER),'Launch with tests/windows-paste.py');
- let browser;
- for(let i=0;i<70;i++){try{browser=await chromium.connectOverCDP('http://127.0.0.1:'+port);break;}catch{await delay(300);}}
- assert.ok(browser,'Private WebView2 startup');
+ let browser,lastStartupError;
+ const deadline=Date.now()+50000;
+ while(Date.now()<deadline){
+  try{browser=await chromium.connectOverCDP('http://127.0.0.1:'+port,{timeout:2000});break;}
+  catch(error){lastStartupError=error;await delay(300);}
+ }
+ assert.ok(browser,'WebView2 startup: '+lastStartupError?.message);
  try{
   let page;
   for(let i=0;i<45;i++){
@@ -47,6 +51,7 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
    await delay(1000);
    const rich=await page.locator('#paste-rich').evaluate(el=>({text:el.innerText,images:[...el.querySelectorAll('img')].map(img=>({alt:img.alt,width:img.naturalWidth})),order:[...el.querySelectorAll('pre,img')].map(n=>n.tagName==='IMG'?n.alt:n.textContent)}));
    const formats=await page.evaluate(()=>window.pasteFormats);
+   assert.ok(formats.length>=2,'Both paste receivers dispatched an operating-system paste');
    assert.ok(formats.every(event=>event.files.length===2),'File-aware paste targets receive both images');
    assert.match(plain,/devpad-paste-1[\s\S]*001-Capture\.png[\s\S]*devpad-paste-0[\s\S]*002-Capture\.png/);
    assert.equal(rich.images.length,2);assert.ok(rich.images.every(i=>i.width===1));
