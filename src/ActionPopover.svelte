@@ -15,12 +15,12 @@
   if (restore && anchor?.isConnected) anchor.focus({ preventScroll: true });
  }
  export async function show(trigger: HTMLElement) {
-  if (pending === trigger || (anchor === trigger && surface.matches(':popover-open'))) { close(true); return; }
+  if (pending === trigger || (anchor === trigger && surface?.matches(':popover-open'))) { close(true); return; }
   pending = trigger;
   await tick();
   if (pending !== trigger) return;
   pending = undefined;
-  if (!trigger.isConnected) return;
+  if (!trigger.isConnected || !surface?.isConnected) return;
   anchor = trigger;
   if (!surface.matches(':popover-open')) surface.showPopover();
   placePopover(surface, trigger, true);
@@ -42,7 +42,7 @@
   event.preventDefault(); event.stopPropagation(); focusPopoverItem(items[next], surface);
  }
  onMount(() => {
-  const scroll = (event: Event) => { if (!(event.target instanceof Node) || !surface.contains(event.target)) close(); };
+  const scroll = (event: Event) => { if (!(event.target instanceof Node) || !surface?.contains(event.target)) close(); };
   const resize = () => close();
   window.addEventListener('scroll', scroll, true);
   window.addEventListener('resize', resize);
@@ -50,7 +50,7 @@
  });
 </script>
 <div {id} class="action-popover menu-surface" bind:this={surface} popover="auto" role="menu" tabindex="-1" aria-label={label}
- ontoggle={() => open = surface.matches(':popover-open')} onkeydown={key}
+ ontoggle={event => open = event.currentTarget?.matches(':popover-open') ?? false} onkeydown={key}
  onclickcapture={e => { if (e.target instanceof Element && e.target.closest('button:not(:disabled)')) close(true); }}>
  {@render children()}
 </div>

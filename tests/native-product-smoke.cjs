@@ -1,7 +1,7 @@
 // Isolated, hidden Windows app. Never connects to the daily app or system pointer.
 const {chromium}=require('@playwright/test');
 const {spawn}=require('node:child_process');const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),net=require('node:net'),assert=require('node:assert/strict');
-const exe=process.env.DEVPAD_TEST_EXE||path.resolve('src-tauri/target/x86_64-pc-windows-msvc/release/devpad.exe');
+const exe=process.env.DEVPAD_TEST_EXE||path.resolve('src-tauri/target/release/devpad.exe');
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'devpad-native-smoke-'));let app,browser,port,testIdentifier;
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function start(){port=await new Promise(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});app=spawn(exe,['--autostart'],{windowsHide:true,stdio:'ignore',env:{...process.env,DEVPAD_DATA_DIR:root,DEVPAD_TEST_STARTUP:"1",WEBVIEW2_USER_DATA_FOLDER:path.join(root,"webview"),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port}`}});for(let i=0;i<120;i++){if(app.exitCode!==null)throw Error('Isolated app exited before startup');try{browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`);break;}catch{await delay(250);}}if(!browser)throw Error('Isolated WebView startup timeout');let main;for(let i=0;i<100;i++){main=browser.contexts().flatMap(c=>c.pages()).find(p=>!new URL(p.url()).searchParams.has('window')&&p.url().includes('tauri'));if(main){try{const loaded=await invoke(main,'load');assert.equal(path.resolve(loaded.dataDir),path.resolve(root));return main;}catch{}}await delay(100);}throw Error('Isolated main page not ready');}

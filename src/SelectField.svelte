@@ -10,6 +10,7 @@
   multiple?:string[]; emptyLabel?:string; onchange?:(value:string)=>void; oncreate?:(name:string)=>Promise<void>;
  }=$props();
  const uid=$props.id();
+ let openRequest=0, opening=false;
  let trigger:HTMLButtonElement, menu:HTMLDivElement, list:HTMLDivElement;
  let input=$state<HTMLInputElement>();
  let opened=$state(false), query=$state(''), pending=$state(false), problem=$state('');
@@ -20,14 +21,19 @@
  function isSelected(id:string){return multiple ? (id ? multiple.includes(id) : multiple.length===0) : id===value;}
  const buttons=()=>Array.from(list.querySelectorAll<HTMLButtonElement>('[role=option]'));
  function close(restore=false) {
+  openRequest++;opening=false;
   if (menu?.matches(':popover-open')) menu.hidePopover();
   opened=false;
-  if (restore) trigger.focus({preventScroll:true});
+  if (restore && trigger?.isConnected) trigger.focus({preventScroll:true});
  }
  async function show() {
   if(disabled || pending) return;
-  if(menu.matches(':popover-open')) { close(true); return; }
-  query=''; problem=''; await tick();
+  if(opening || menu?.matches(':popover-open')) { close(true); return; }
+  const request=++openRequest;opening=true;
+  query='';problem='';await tick();
+  if(request!==openRequest)return;
+  opening=false;
+  if(!menu?.isConnected||!trigger?.isConnected)return;
   menu.showPopover(); placePopover(menu,trigger); opened=true;
   const active=buttons()[Math.max(0,options.findIndex(o=>isSelected(o.value)))];
   list.scrollTop=0;
@@ -71,7 +77,7 @@
   e.preventDefault();e.stopPropagation();focusPopoverItem(rows[next],list);
  }
  onMount(()=>{
-  const scroll=(e:Event)=>{if(!menu.contains(e.target as Node))close();};
+  const scroll=(e:Event)=>{if(!menu?.contains(e.target as Node))close();};
   const dismiss=()=>close();
   window.addEventListener('resize',dismiss);window.addEventListener('scroll',scroll,true);window.addEventListener('dismiss-note-popovers',dismiss);
   return()=>{window.removeEventListener('resize',dismiss);window.removeEventListener('scroll',scroll,true);window.removeEventListener('dismiss-note-popovers',dismiss);};
@@ -82,7 +88,7 @@
  popovertarget={uid} onclick={e=>{e.preventDefault();void show();}} onkeydown={e=>{if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();void show();}}}>
  <span>{selectedLabel||$t('请选择')}</span><Icon name="chevron" size={14}/>
 </button>
-<div id={uid} class="select-options menu-surface" popover="auto" role="group" aria-label={label} bind:this={menu} ontoggle={()=>opened=menu.matches(':popover-open')}>
+<div id={uid} class="select-options menu-surface" popover="auto" role="group" aria-label={label} bind:this={menu} ontoggle={event=>opened=event.currentTarget?.matches(':popover-open') ?? false}>
  {#if searchable}
   <div class="option-search"><Icon name="search" size={15}/><input bind:this={input} bind:value={query} type="text" onkeydown={key} aria-label={oncreate?$t('类型名称'):$t('搜索选项')}
    placeholder={oncreate?$t('使用已有类型或输入新名称'):$t('搜索选项')} oninput={()=>{list.scrollTop=0;problem='';}}/></div>

@@ -24,7 +24,7 @@ const server=http.createServer((req,res)=>{
  try{
   const page=await browser.newPage({locale:'zh-CN',viewport:{width:900,height:640},reducedMotion:'reduce'});
   const errors=[];
-  page.on('pageerror',error=>errors.push(error.message));
+  page.on('pageerror',error=>errors.push(error.stack||error.message));
   const sampleImage='data:image/png;base64,'+fs.readFileSync(path.resolve('docs/design/current-batch-compact.png')).toString('base64');
   await page.addInitScript(image=>{
    localStorage.setItem('devpad-theme','dark');
@@ -394,6 +394,13 @@ const server=http.createServer((req,res)=>{
   await page.getByRole('textbox',{name:'笔记标签'}).focus();
   await page.getByRole('button',{name:'#侧栏',exact:true}).click();
   assert.equal((await page.getByRole('textbox',{name:'笔记标签'}).inputValue()).trim(),'#侧栏');
+  // A native toggle notification can arrive after its owner has left the editor.
+  await page.evaluate(async()=>{
+   const editor=document.querySelector('.composer'),trigger=editor.querySelector('[role=combobox]');
+   const list=editor.querySelector('.select-options');trigger.click();await Promise.resolve();
+   list.hidePopover();document.querySelector('.journal-select').click();await Promise.resolve();
+   list.dispatchEvent(new Event('toggle'));
+  });
   assert.deepEqual(errors,[]);
   const notebookUrl=page.url();
   await page.close();

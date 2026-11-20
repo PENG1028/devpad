@@ -780,11 +780,9 @@
      <button aria-expanded={batchMenuOpen} aria-controls="batch-actions" aria-haspopup="menu" popovertarget="batch-actions" onclick={e=>{e.preventDefault();void selectionMenu.show(e.currentTarget);}}>{$t('更多')}</button>
      <ActionPopover id="batch-actions" label={$t('批量操作选项')} bind:this={selectionMenu} bind:open={batchMenuOpen}>
        <button role="menuitem" tabindex="-1" onclick={()=>{selectAll();dismissMenus();}}>{$t('全选当前结果')}</button>
-       {#if selectionHasImages}
-        {#if selectionHasText}
+       {#if selectionHasImages&&selectionHasText}
          <button role="menuitem" tabindex="-1" disabled={busy} onclick={()=>copyOutput(selected,'raw')}>{$t('仅复制正文')}</button>
          <button role="menuitem" tabindex="-1" disabled={busy} onclick={()=>copyOutput(selected,'images')}>{$t('仅复制图片')}</button>
-        {:else}<button role="menuitem" tabindex="-1" disabled={busy} onclick={()=>copyOutput(selected,'bundle')}>{$t('复制图文')}</button>{/if}
        {/if}
        <hr/>
        <button role="menuitem" tabindex="-1" disabled={busy||!selected.length} onclick={()=>openPanel('delivery')}>{$t('导出…')}</button>
@@ -852,13 +850,9 @@
 </div>
 {#snippet recordActions(entry:Entry)}
  <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>edit(entry)}>{$t('编辑记录')}</button>
- {#if entry.attachments.length}
-  {#if entry.text.trim()}
+ {#if entry.attachments.length&&entry.text.trim()}
    <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'raw')}>{$t('仅复制正文')}</button>
    <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'images')}>{$t('仅复制图片')}</button>
-  {:else}
-   <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'bundle')}>{$t('复制图文')}</button>
-  {/if}
  {/if}
  <hr/>
  <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>openMove([entry.id])}>{$t('移动到项目…')}</button>

@@ -19,18 +19,18 @@
   if(event.key==='Escape' && open) {
    event.stopPropagation(); event.preventDefault(); anchor.focus({preventScroll:true}); onopen(false);
   } else if(event.key==='ArrowDown' && event.target===anchor && multiple && !disabled) {
-   event.preventDefault(); offer(); await tick(); first.focus({preventScroll:true});
+   event.preventDefault(); offer(); await tick(); first?.focus({preventScroll:true});
   }
  }
 </script>
 
 <div class="copy-control" class:open role="group" aria-label={label}
  onpointerenter={event=>{if(event.pointerType==='mouse')offer();}}
- onpointerleave={event=>{if(!event.currentTarget.matches(':has(:focus-visible)'))onopen(false);}}
+ onpointerleave={event=>{if(!event.currentTarget?.matches(':has(:focus-visible)'))onopen(false);}}
  onfocusout={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))onopen(false);}}>
  <button class="icon-button journal-copy" class:copied {disabled} bind:this={anchor} aria-label={label} data-tip={label}
   aria-expanded={multiple?open:undefined} aria-controls={multiple?optionsId:undefined}
-  onfocus={event=>{if(event.currentTarget.matches(':focus-visible'))offer();}}
+  onfocus={event=>{if(event.currentTarget?.matches(':focus-visible'))offer();}}
   onkeydown={key} onclick={()=>oncopy(mode)}><Icon name={copied?'check':'copy'} size={16}/></button>
  {#if multiple}
   <div id={optionsId} class="copy-options" inert={!open}>
