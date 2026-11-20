@@ -28,14 +28,14 @@
  onpointerenter={event=>{if(event.pointerType==='mouse')offer();}}
  onpointerleave={event=>{if(!event.currentTarget.matches(':has(:focus-visible)'))onopen(false);}}
  onfocusout={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))onopen(false);}}>
- <button class="icon-button journal-copy" class:copied {disabled} bind:this={anchor} aria-label={label} title={label}
+ <button class="icon-button journal-copy" class:copied {disabled} bind:this={anchor} aria-label={label} data-tip={label}
   aria-expanded={multiple?open:undefined} aria-controls={multiple?optionsId:undefined}
   onfocus={event=>{if(event.currentTarget.matches(':focus-visible'))offer();}}
   onkeydown={key} onclick={()=>oncopy(mode)}><Icon name={copied?'check':'copy'} size={16}/></button>
  {#if multiple}
   <div id={optionsId} class="copy-options" inert={!open}>
-   <button bind:this={first} disabled={disabled||!open} aria-label={$t('复制正文')} title={$t('复制正文')} onkeydown={key} onclick={()=>oncopy('raw')}><Icon name="text" size={15}/></button>
-   <button disabled={disabled||!open} aria-label={$t('复制图片')} title={$t('复制图片')} onkeydown={key} onclick={()=>oncopy('images')}><Icon name="image" size={15}/></button>
+   <button bind:this={first} disabled={disabled||!open} aria-label={$t('仅复制正文')} data-tip={$t('仅复制正文')} onkeydown={key} onclick={()=>oncopy('raw')}><Icon name="text" size={15}/></button>
+   <button disabled={disabled||!open} aria-label={$t('仅复制图片')} data-tip={$t('仅复制图片')} onkeydown={key} onclick={()=>oncopy('images')}><Icon name="image" size={15}/></button>
   </div>
  {/if}
 </div>

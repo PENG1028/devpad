@@ -57,7 +57,7 @@
  </button>
 {/snippet}
 <div class="settings">
- <div class="settings-tabs" role="tablist" aria-label={$t('设置分类')} bind:this={tabList}>
+ <div class="settings-tabs" style:--tab={tabs.findIndex(item=>item.id===current)} role="tablist" aria-label={$t('设置分类')} bind:this={tabList}>
   {#each tabs as tab}
    <button id={id+'-'+tab.id} role="tab" aria-selected={current===tab.id} aria-controls={id+'-page-'+tab.id}
     tabindex={current===tab.id ? 0 : -1} onclick={()=>current=tab.id} onkeydown={tabKey}>{$t(tab.label)}</button>
@@ -121,11 +121,15 @@
 </div>
 
 <style>
- .settings{--row-pad:4px;max-width:640px;margin-inline:auto;color:var(--text);font-size:14px;line-height:1.5}
- .settings-tabs{position:sticky;top:0;z-index:1;display:flex;gap:18px;padding-inline:var(--row-pad);border-bottom:1px solid var(--line);background:var(--bg)}
- .settings-tabs button{position:relative;min-height:40px;padding:6px 2px;color:var(--secondary);font-weight:400;border-radius:3px}
+ .settings{display:flex;flex-direction:column;width:100%;height:100%;--row-pad:4px;max-width:640px;margin-inline:auto;color:var(--text);font-size:14px;line-height:1.5}
+ .settings-tabs{position:relative;display:grid;flex:none;grid-template-columns:repeat(3,minmax(0,1fr));border-bottom:1px solid var(--line)}
+ .settings-tabs::after{content:'';position:absolute;pointer-events:none;inset-inline-start:0;bottom:-1px;width:calc(100% / 3);height:2px;background:var(--blue);border-radius:2px;transform:translateX(calc(var(--tab) * 100%));transition:transform 150ms var(--ease-surface)}
+ .settings-tabs:dir(rtl)::after{transform:translateX(calc(var(--tab) * -100%))}
+ .settings-tabs button{min-width:0;min-height:40px;padding:6px 2px;color:var(--secondary);font-size:14px;font-weight:400;border-radius:4px}
  .settings-tabs button[aria-selected=true]{color:var(--text)}
- .settings-tabs button[aria-selected=true]::after{position:absolute;content:'';inset:auto 0 -1px;height:2px;background:var(--blue);border-radius:2px}
+ .settings-page{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-bottom:12px}
+ @media(prefers-reduced-motion:no-preference){.settings-page:not([hidden]){animation:tab-appear 120ms ease-out}@keyframes tab-appear{from{opacity:.55}to{opacity:1}}}
+ @media(prefers-reduced-motion:reduce){.settings-tabs::after{transition:none}}
  .settings-page[hidden]{display:none}
  .settings-page section{margin:23px 0 0}
  .settings-page h3{margin:0 0 5px;padding:0 var(--row-pad);font-size:13px;font-weight:500;line-height:20px;color:var(--secondary)}

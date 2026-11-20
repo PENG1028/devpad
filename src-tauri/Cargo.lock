@@ -870,7 +870,7 @@ dependencies = [
 
 [[package]]
 name = "devpad"
-version = "0.7.0-dev.5"
+version = "0.7.0-dev.6"
 dependencies = [
  "arboard",
  "base64 0.22.1",

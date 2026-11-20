@@ -11,8 +11,11 @@ async function connect(){const client=new Client({name:'devpad-integration-test'
 async function call(client,name,args={}){return client.callTool({name,arguments:args});}
 const data=r=>r.structuredContent.data;
 try {
- const a=await connect(),b=await connect();const tools=await a.listTools();assert.ok(tools.tools.some(t=>t.name==='claim_task'));assert.equal(tools.tools.length,12);
+ const a=await connect(),b=await connect();const tools=await a.listTools();assert.ok(tools.tools.some(t=>t.name==='claim_task'));assert.ok(tools.tools.some(t=>t.name==='list_note_types'));
  const projects=data(await call(a,'list_projects'));assert.equal(projects[0].id,'inbox');
+ const types=data(await call(a,'list_note_types'));assert.ok(types.some(type=>type.id==='Reference')&&types.some(type=>type.id==='Bug'));
+ assert.equal(data(await call(a,'create_note',{projectId:'inbox',text:'图片资料',typeId:'Reference'})).type,'Reference');
+ assert.equal((await call(a,'create_note',{projectId:'inbox',text:'bad type',typeId:'missing'})).isError,true);
  const note=data(await call(a,'create_note',{projectId:'inbox',text:'普通笔记\n完整保留'}));assert.equal(note.revision,1);
  assert.deepEqual(data(await call(a,'list_tasks')),[]);
  const updated=data(await call(a,'update_note',{id:note.id,revision:1,text:'agent A 修改'}));assert.equal(updated.revision,2);

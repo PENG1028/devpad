@@ -6,9 +6,11 @@ import './style.css';
 import './refinement.css';
 import './isolation.css';
 import './interaction.css';
+import { installTooltips } from './tooltip';
 import { applyTheme } from './theme';
 import { languageReady } from './i18n';
 applyTheme();
+installTooltips();
 const kind=new URLSearchParams(location.search).get('window')||'main';
 const target=document.getElementById('app')!;
 void languageReady.then(()=>{

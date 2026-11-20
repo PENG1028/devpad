@@ -1,0 +1,10 @@
+[
+  {"id":"Note","label":"笔记","group":"日常"},
+  {"id":"Idea","label":"想法","group":"日常"},
+  {"id":"Question","label":"疑问","group":"日常"},
+  {"id":"Reference","label":"资料","group":"日常"},
+  {"id":"Bug","label":"Bug","group":"开发"},
+  {"id":"UX","label":"体验","group":"开发"},
+  {"id":"Feature","label":"功能","group":"开发"},
+  {"id":"Draft","label":"引用草稿","group":"工具"}
+]

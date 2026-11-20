@@ -1,23 +1,102 @@
 <script lang="ts">
  import { t } from './i18n';
- import {onMount, tick} from 'svelte';
+ import { onMount, tick } from 'svelte';
  import Icon from './Icon.svelte';
- import {placePopover} from './popover';
- let {value=$bindable(''),options,label,disabled=false,resetAfterPick=false,onchange}:{value?:string;options:{value:string;label:string}[];label:string;disabled?:boolean;resetAfterPick?:boolean;onchange?:(value:string)=>void}=$props();
+ import { placePopover, focusPopoverItem } from './popover';
+
+ type Option = { value:string; label:string; group?:string };
+ let {value=$bindable(''),options,label,disabled=false,resetAfterPick=false,onchange,oncreate,multiple,emptyLabel}:{
+  value?:string; options:Option[]; label:string; disabled?:boolean; resetAfterPick?:boolean;
+  multiple?:string[]; emptyLabel?:string; onchange?:(value:string)=>void; oncreate?:(name:string)=>Promise<void>;
+ }=$props();
  const uid=$props.id();
- let trigger:HTMLButtonElement, menu:HTMLDivElement, opened=$state(false);
- function close(){if(menu?.matches(':popover-open'))menu.hidePopover();opened=false;}
- async function show(){if(disabled)return;if(opened){close();return;}placePopover(menu,trigger);menu.showPopover();opened=true;await tick();const buttons=menu.querySelectorAll<HTMLButtonElement>('[role=option]');buttons[Math.max(0,options.findIndex(o=>o.value===value))]?.focus();}
- function choose(next:string){value=resetAfterPick?'':next;onchange?.(next);close();trigger.focus();}
- function key(e:KeyboardEvent){const buttons=Array.from(menu.querySelectorAll<HTMLButtonElement>('[role=option]'));const index=buttons.indexOf(document.activeElement as HTMLButtonElement);let next=index;if(e.key==='ArrowDown')next=(index+1)%buttons.length;else if(e.key==='ArrowUp')next=(index-1+buttons.length)%buttons.length;else if(e.key==='Home')next=0;else if(e.key==='End')next=buttons.length-1;else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();trigger.focus();return;}else if(e.key==='Tab'){close();return;}else return;e.preventDefault();e.stopPropagation();buttons[next]?.focus();}
- onMount(()=>{const scroll=(e:Event)=>{if(!menu.contains(e.target as Node))close();};window.addEventListener('resize',close);window.addEventListener('scroll',scroll,true);window.addEventListener('dismiss-note-popovers',close);return()=>{window.removeEventListener('resize',close);window.removeEventListener('scroll',scroll,true);window.removeEventListener('dismiss-note-popovers',close);};});
+ let trigger:HTMLButtonElement, menu:HTMLDivElement, list:HTMLDivElement;
+ let input=$state<HTMLInputElement>();
+ let opened=$state(false), query=$state(''), pending=$state(false), problem=$state('');
+ const searchable=$derived(!!oncreate || options.length>=9);
+ const filtered=$derived(options.filter(o=>o.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())));
+ const exact=$derived(options.find(o=>o.label.toLocaleLowerCase()===query.trim().toLocaleLowerCase()));
+ const selectedLabel=$derived(multiple ? options.filter(o=>multiple.includes(o.value)).map(o=>o.label).join(', ') || emptyLabel : options.find(o=>o.value===value)?.label);
+ function isSelected(id:string){return multiple ? (id ? multiple.includes(id) : multiple.length===0) : id===value;}
+ const buttons=()=>Array.from(list.querySelectorAll<HTMLButtonElement>('[role=option]'));
+ function close(restore=false) {
+  if (menu?.matches(':popover-open')) menu.hidePopover();
+  opened=false;
+  if (restore) trigger.focus({preventScroll:true});
+ }
+ async function show() {
+  if(disabled || pending) return;
+  if(menu.matches(':popover-open')) { close(true); return; }
+  query=''; problem=''; await tick();
+  menu.showPopover(); placePopover(menu,trigger); opened=true;
+  const active=buttons()[Math.max(0,options.findIndex(o=>isSelected(o.value)))];
+  list.scrollTop=0;
+  focusPopoverItem(active,list);
+  if(searchable) input?.focus({preventScroll:true});
+ }
+ function choose(next:string) {
+  if(multiple){onchange?.(next);return;}
+  value=resetAfterPick?'':next; onchange?.(next); close(true);
+ }
+ async function create() {
+  if(!oncreate || pending || !query.trim()) return;
+  if(exact) {choose(exact.value);return;}
+  pending=true; problem='';
+  try {await oncreate(query.trim().normalize('NFC'));close(true);}
+  catch(error) {problem=String(error);}
+  finally {pending=false;}
+ }
+ function key(e:KeyboardEvent) {
+  if(e.isComposing) return;
+  if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close(true);return;}
+  if(e.key==='Tab') {
+   const footer=menu.querySelector<HTMLButtonElement>('.create-option:not(:disabled)');
+   if(!e.shiftKey && footer && document.activeElement!==footer){e.preventDefault();footer.focus();return;}
+   close(true);return;
+  }
+  const rows=buttons(), index=rows.indexOf(document.activeElement as HTMLButtonElement);
+  const fromInput=e.target===input;
+  if(fromInput && e.key==='Enter'){
+   e.preventDefault();e.stopPropagation();
+   if(oncreate && query.trim() && !exact)void create();
+   else if(exact || filtered[0])choose((exact || filtered[0]).value);
+   return;
+  }
+  let next:number;
+  if(e.key==='ArrowDown')next=index<0?0:(index+1)%rows.length;
+  else if(e.key==='ArrowUp')next=index<=0?rows.length-1:index-1;
+  else if(!fromInput && e.key==='Home')next=0;
+  else if(!fromInput && e.key==='End')next=rows.length-1;
+  else return;
+  e.preventDefault();e.stopPropagation();focusPopoverItem(rows[next],list);
+ }
+ onMount(()=>{
+  const scroll=(e:Event)=>{if(!menu.contains(e.target as Node))close();};
+  const dismiss=()=>close();
+  window.addEventListener('resize',dismiss);window.addEventListener('scroll',scroll,true);window.addEventListener('dismiss-note-popovers',dismiss);
+  return()=>{window.removeEventListener('resize',dismiss);window.removeEventListener('scroll',scroll,true);window.removeEventListener('dismiss-note-popovers',dismiss);};
+ });
 </script>
-<button type="button" class="select-field" role="combobox" aria-label={label} aria-expanded={opened} aria-controls={uid} aria-haspopup="listbox" {disabled} bind:this={trigger} onclick={show} onkeydown={e=>{if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();void show();}}}><span>{options.find(o=>o.value===value)?.label||$t('请选择')}</span><Icon name="chevron" size={14}/></button>
-<div id={uid} class="select-options" popover="auto" role="listbox" tabindex="-1" aria-label={label} bind:this={menu} ontoggle={()=>opened=menu.matches(':popover-open')} onkeydown={key}>
- {#each options as option}<button type="button" role="option" aria-selected={option.value===value} tabindex="-1" onclick={()=>choose(option.value)}><span>{option.label}</span>{#if option.value===value}<Icon name="check" size={14}/>{/if}</button>{/each}
- {#if !options.length}<span class="empty-options">{$t('暂无选项')}</span>{/if}
+
+<button type="button" class="select-field" role="combobox" aria-label={label} aria-expanded={opened} aria-controls={uid+'-list'} aria-haspopup="listbox" {disabled} bind:this={trigger}
+ popovertarget={uid} onclick={e=>{e.preventDefault();void show();}} onkeydown={e=>{if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();void show();}}}>
+ <span>{selectedLabel||$t('请选择')}</span><Icon name="chevron" size={14}/>
+</button>
+<div id={uid} class="select-options menu-surface" popover="auto" role="group" aria-label={label} bind:this={menu} ontoggle={()=>opened=menu.matches(':popover-open')}>
+ {#if searchable}
+  <div class="option-search"><Icon name="search" size={15}/><input bind:this={input} bind:value={query} type="text" onkeydown={key} aria-label={oncreate?$t('类型名称'):$t('搜索选项')}
+   placeholder={oncreate?$t('使用已有类型或输入新名称'):$t('搜索选项')} oninput={()=>{list.scrollTop=0;problem='';}}/></div>
+ {/if}
+ <div id={uid+'-list'} class="options-scroll" role="listbox" tabindex="-1" onkeydown={key} aria-multiselectable={multiple?true:undefined} aria-label={label} bind:this={list}>
+  {#each filtered as option,i (option.value)}
+   {#if option.group && filtered[i-1]?.group!==option.group}<div class="option-heading" aria-hidden="true">{option.group}</div>{/if}
+   <button type="button" role="option" aria-selected={isSelected(option.value)} tabindex="-1" onclick={()=>choose(option.value)}>
+    <span>{option.label}</span>{#if isSelected(option.value)}<Icon name="check" size={14}/>{/if}
+   </button>
+  {:else}<span class="empty-options">{$t('暂无选项')}</span>{/each}
+ </div>
+ {#if oncreate && query.trim() && !exact}
+  <button class="create-option" type="button" disabled={pending} onkeydown={key} onclick={create}><Icon name="plus" size={15}/><span>{$t('新建类型')} · {query.trim()}</span></button>
+ {/if}
+ {#if problem}<p class="option-error" role="alert">{problem}</p>{/if}
 </div>
-<style>
- .select-field{display:inline-flex;justify-content:space-between;gap:12px;min-width:90px;max-width:100%;min-height:34px;padding:7px 10px;border:1px solid var(--line);background:var(--surface);border-radius:9px;color:var(--text);font-size:13px}.select-field span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .select-options{position:fixed;inset:auto;margin:0;padding:5px;overflow:auto;border:1px solid var(--line);border-radius:11px;background:var(--bg);color:var(--text);box-shadow:0 8px 24px #0002;overscroll-behavior:contain}.select-options:popover-open{display:block}.select-options button{display:flex;width:100%;justify-content:space-between;text-align:left;min-height:34px;font-size:13px;padding:7px 9px;border-radius:6px}.select-options button span{overflow-wrap:anywhere}.select-options button[aria-selected=true]{background:var(--surface);font-weight:400}.select-options button:focus{outline:2px solid var(--blue);outline-offset:-2px}.empty-options{display:block;padding:8px;font-size:13px;color:var(--secondary)}
-</style>

@@ -100,7 +100,8 @@ function walk(node,visit,parent){
   if(!['metadata','loc','start','end','comments','parent'].includes(name))walk(value,visit,node);
  }
 }
-const humanAttributes=new Set(['title','placeholder','alt','aria-label','aria-description']);
+for(const kind of JSON.parse(read('src/note-types.json'))){keyAt(kind.label,'note types');keyAt(kind.group,'note type groups');}
+const humanAttributes=new Set(['data-tip','title','placeholder','alt','aria-label','aria-description']);
 const hasWords=/[\p{L}]/u;
 for(const file of frontend.filter(name=>name.endsWith('.svelte'))){
  const input=read(file);

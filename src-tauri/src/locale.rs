@@ -113,6 +113,10 @@ pub fn set_locale(app: tauri::AppHandle, store: tauri::State<Store>, locale: Str
     tray.map_err(err)
 }
 
+pub fn matches_label(label: &'static str, lowercase: &str) -> bool {
+    label.to_lowercase() == lowercase || REGISTRY.iter().any(|spec| Language(&spec.code).text(label).to_lowercase() == lowercase)
+}
+
 pub fn language(app: &tauri::AppHandle) -> Language { app.state::<Store>().language() }
 
 #[cfg(test)]

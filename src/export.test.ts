@@ -6,7 +6,8 @@ test('纯文本回退把原文件名放在各自正文下，独立复制正文�
  const a=note('a'),b=note('b');
  b.text='';b.attachments[0].name='单独的原图.jpg';
  const output=originalOutput([b,a]);
- assert.equal(output.clipboardText,'[图片] 单独的原图.jpg\n[图片] 同名图片.webp\n\n'+a.text+'\n[图片] 同名图片.jpg\n[图片] 同名图片.webp');
+ assert.equal(output.clipboardText,'[图片] 单独的原图.jpg\n[图片] 002-同名图片.webp\n\n'+a.text+'\n[图片] 同名图片.jpg\n[图片] 004-同名图片.webp');
+ assert.deepEqual(output.manifest.records.map(record=>record.files[1].displayName),[output.files[1].name,output.files[3].name]);
  assert.equal(output.text,'\n\n'+a.text);
  assert.deepEqual(output.manifest.records.map(record=>record.id),['b','a']);
 });

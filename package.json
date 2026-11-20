@@ -1,6 +1,6 @@
 {
   "name": "devpad",
-  "version": "0.7.0-dev.5",
+  "version": "0.7.0-dev.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "tauri": "tauri",
     "test": "npm run check:locales && node --experimental-strip-types --test src/core.test.ts src/export.test.ts tests/locales.test.mjs",
     "test:native": "node tests/batch-78.cjs",
-    "test:ui:headless": "node tests/ui-refinement-headless.cjs"
+    "test:ui:headless": "node tests/ui-refinement-headless.cjs && node tests/notebook-morph-headless.cjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

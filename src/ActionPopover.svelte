@@ -1,6 +1,6 @@
 <script lang="ts">
  import { onMount, tick, type Snippet } from 'svelte';
- import { placePopover } from './popover';
+ import { placePopover, focusPopoverItem } from './popover';
 
  let { id, label, children, open = $bindable(false) }: {
   id: string; label: string; children: Snippet; open?: boolean
@@ -22,10 +22,11 @@
   pending = undefined;
   if (!trigger.isConnected) return;
   anchor = trigger;
-  placePopover(surface, trigger, true);
   if (!surface.matches(':popover-open')) surface.showPopover();
+  placePopover(surface, trigger, true);
+  surface.scrollTop = 0;
   open = true;
-  buttons()[0]?.focus({ preventScroll: true });
+  focusPopoverItem(buttons()[0], surface);
  }
  function key(event: KeyboardEvent) {
   if (event.key === 'Tab') { close(true); return; }
@@ -38,7 +39,7 @@
   else if (event.key === 'Home') next = 0;
   else if (event.key === 'End') next = items.length - 1;
   else return;
-  event.preventDefault(); event.stopPropagation(); items[next].focus();
+  event.preventDefault(); event.stopPropagation(); focusPopoverItem(items[next], surface);
  }
  onMount(() => {
   const scroll = (event: Event) => { if (!(event.target instanceof Node) || !surface.contains(event.target)) close(); };
@@ -48,7 +49,7 @@
   return () => { window.removeEventListener('scroll', scroll, true); window.removeEventListener('resize', resize); };
  });
 </script>
-<div {id} class="action-popover" bind:this={surface} popover="auto" role="menu" tabindex="-1" aria-label={label}
+<div {id} class="action-popover menu-surface" bind:this={surface} popover="auto" role="menu" tabindex="-1" aria-label={label}
  ontoggle={() => open = surface.matches(':popover-open')} onkeydown={key}
  onclickcapture={e => { if (e.target instanceof Element && e.target.closest('button:not(:disabled)')) close(true); }}>
  {@render children()}

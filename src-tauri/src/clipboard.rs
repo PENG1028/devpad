@@ -1,5 +1,6 @@
 use crate::{err, ExportFile, Result, Store};
 use crate::locale::Language;
+use base64::Engine;
 use tauri::Manager;
 fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
@@ -53,11 +54,15 @@ fn records_html(manifest: &serde_json::Value, files: &[ExportFile], language: La
             if total > 75 * 1024 * 1024 {
                 return Err(language.text("图文复制总量超过 75 MB，请使用完整导出或 MCP").into());
             }
-            let url = tauri::Url::from_file_path(path).map_err(|_| language.text("图片路径无法转换"))?;
+            let mime = match path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
+                "jpg" | "jpeg" => "image/jpeg", "webp" => "image/webp", _ => "image/png",
+            };
+            // Rich editors can paste the pixels without permission to read a local file URL.
+            let bytes = std::fs::read(path).map_err(err)?;
             body.push_str(&format!(
-                "<img src=\"{}\" alt=\"{}\">",
-                escape(url.as_str()),
-                escape(reference["originalName"].as_str().unwrap_or(language.text("图片")))
+                "<img src=\"data:{};base64,{}\" alt=\"{}\">",
+                mime, base64::engine::general_purpose::STANDARD.encode(bytes),
+                escape(reference["displayName"].as_str().or_else(|| reference["originalName"].as_str()).unwrap_or(language.text("图片")))
             ));
         }
     }
@@ -71,12 +76,26 @@ fn write_windows_formats(text: &str, rich: &str, files: &[ExportFile], language:
     let paths: Vec<_> = files.iter().map(|file| &file.source).collect();
     let _lock = Clipboard::new_attempts(10).map_err(err)?;
     raw::empty().map_err(err)?;
-    raw::set_string_with(text, NoClear).map_err(err)?;
     raw::set_html_with(format.code(), rich, NoClear).map_err(err)?;
     if !paths.is_empty() {
         raw::set_file_list_with(&paths, NoClear).map_err(err)?;
     }
+    raw::set_string_with(text, NoClear).map_err(err)?;
     Ok(())
+}
+#[cfg(windows)]
+pub fn image_files_and_text() -> Option<(Vec<String>, String)> {
+    use clipboard_win::{formats, raw, Clipboard};
+    let _lock = Clipboard::new_attempts(10).ok()?;
+    let mut files = Vec::new();
+    raw::get_file_list(&mut files).ok()?;
+    if files.is_empty() { return None; }
+    let mut bytes = Vec::new();
+    // File managers also provide paths as text. A rich clipboard offers a separate text fallback.
+    if formats::Html::new().is_some_and(|format| raw::is_format_avail(format.code())) {
+        let _ = raw::get_string(&mut bytes);
+    }
+    Some((files, String::from_utf8_lossy(&bytes).into_owned()))
 }
 #[tauri::command]
 pub async fn copy_bundle(
@@ -149,6 +168,9 @@ mod tests {
             fn SetProcessWindowStation(station:*mut c_void) -> i32;
             fn CreateDesktopW(name:*const u16, device:*const u16, mode:*const c_void, flags:u32, access:u32, security:*const c_void) -> *mut c_void;
             fn SetThreadDesktop(desktop:*mut c_void) -> i32;
+            fn CreateWindowExW(ex:u32,class:*const u16,name:*const u16,style:u32,x:i32,y:i32,w:i32,h:i32,parent:*mut c_void,menu:*mut c_void,instance:*mut c_void,param:*mut c_void)->*mut c_void;
+            fn SendMessageW(window:*mut c_void,msg:u32,w:usize,l:isize)->isize;
+            fn DestroyWindow(window:*mut c_void)->i32;
         }
         let station_name:Vec<_>=format!("DevPadTest-{}\0",uuid::Uuid::new_v4()).encode_utf16().collect();
         let desktop_name:Vec<_>=format!("Clipboard-{}\0",uuid::Uuid::new_v4()).encode_utf16().collect();
@@ -178,6 +200,18 @@ mod tests {
         let rich=records_html(&manifest,&files,store.language()).unwrap();
         let plain="正文\n[图片] 一.png\n[图片] 二.png";
         write_windows_formats(plain,&rich,&files,store.language()).unwrap();
+        // Ask a real multiline Windows edit control to paste from the private clipboard.
+        let class:Vec<_>="EDIT\0".encode_utf16().collect();
+        let edit=unsafe{CreateWindowExW(0,class.as_ptr(),null(),0x80000004,0,0,320,100,std::ptr::null_mut(),std::ptr::null_mut(),std::ptr::null_mut(),std::ptr::null_mut())};
+        assert!(!edit.is_null(),"{}",std::io::Error::last_os_error());
+        let mut pasted=[0u16;256];
+        unsafe { SendMessageW(edit,0x0302,0,0); } // WM_PASTE
+        let len=unsafe{SendMessageW(edit,0x000D,pasted.len(),pasted.as_mut_ptr() as isize)} as usize;
+        unsafe { DestroyWindow(edit); }
+        assert_eq!(String::from_utf16(&pasted[..len]).unwrap().replace("\r\n","\n"),plain);
+        let (round_trip_files,round_trip_text)=image_files_and_text().unwrap();
+        assert_eq!(round_trip_files.len(),2);
+        assert_eq!(round_trip_text,plain);
         let _read=clipboard_win::Clipboard::new_attempts(10).unwrap();
         let (mut text,mut html,mut paths)=(Vec::new(),Vec::new(),Vec::new());
         clipboard_win::raw::get_string(&mut text).unwrap();

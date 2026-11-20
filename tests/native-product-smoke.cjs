@@ -14,9 +14,23 @@ async function stop(){if(browser){await browser.close();browser=null;}if(app&&ap
  const geometry=()=>Promise.all(['outer_position','outer_size'].map(name=>invoke(main,'plugin:window|'+name,{label:'main'})));
  const originalGeometry=await geometry();
  const burst=main.locator('.settings-trigger');
+ const tabGeometry=()=>main.locator('.settings-tabs').evaluate(node=>{
+  const rect=node.getBoundingClientRect();return [rect.x,rect.y,rect.width,rect.height];
+ });
  for(let i=0;i<12;i++){
   await burst.evaluate(button=>{for(let n=0;n<4;n++)button.click();});
   await main.getByRole('tablist').waitFor();
+  if(i===0){
+   // Measure tab changes after the opening animation of the entire sheet has finished.
+   await main.locator('.settings-sheet[open]').evaluate(async dialog=>{
+    dialog.getBoundingClientRect();
+    await Promise.all(dialog.getAnimations().map(animation=>animation.finished.catch(()=>{})));
+   });
+   const frame=await tabGeometry();
+   for(const tab of await main.getByRole('tab').all()){
+    await tab.evaluate(button=>button.click());assert.deepEqual(await tabGeometry(),frame);
+   }
+  }
   assert.equal(browser.contexts().flatMap(context=>context.pages()).length,1);
   assert.equal(await main.locator('[role=alert]').count(),0);
   await main.locator('.settings-sheet .sheet-header button').evaluate(button=>button.click());
@@ -76,6 +90,14 @@ async function stop(){if(browser){await browser.close();browser=null;}if(app&&ap
  assert.equal((await invoke(main,'load')).entries.length,2);
  assert.equal((await invoke(main,'list_drafts')).length,0);
 
+ const [kindA,kindB]=await Promise.all(['Field study','field STUDY'].map(name=>invoke(main,'create_note_type',{name})));
+ assert.equal(kindA.id,kindB.id);
+ const customNote={...(await invoke(main,'load')).entries[0],id:'typed-note',type:kindA.id,revision:0};
+ await invoke(main,'save_entry',{entry:customNote});
+ await stop();main=await start();
+ const reopened=await invoke(main,'load');
+ assert.ok(reopened.noteTypes.some(kind=>kind.id===kindA.id&&kind.name===kindA.name));
+ assert.equal(reopened.entries.find(note=>note.id===customNote.id).type,kindA.id);
  const other=await invoke(main,'create_project',{name:'原生导航验收'});
  await main.reload();
  const click=locator=>locator.evaluate(button=>button.click());
@@ -90,7 +112,7 @@ async function stop(){if(browser){await browser.close();browser=null;}if(app&&ap
  await main.getByText('存到 收件箱',{exact:true}).waitFor();
  await click(main.getByRole('button',{name:'保存',exact:true}));
  await main.waitForFunction(()=>document.querySelector('#entry-text')?.value==='');
- assert.equal((await picker.innerText()).trim(),'原生导航验收');
+ assert.equal((await main.locator('.current-project').innerText()).trim(),'原生导航验收');
  await currentEditor.fill('新项目中的记录');
  await click(main.getByRole('button',{name:'保存',exact:true}));
  await main.locator('article').getByText('新项目中的记录',{exact:true}).waitFor();
@@ -98,7 +120,7 @@ async function stop(){if(browser){await browser.close();browser=null;}if(app&&ap
  assert.equal(saved.find(note=>note.text==='留在收件箱的输入').projectId,'inbox');
  assert.equal(saved.find(note=>note.text==='新项目中的记录').projectId,other.id);
  assert.equal(await picker.getAttribute('aria-expanded'),'true');
- await click(navigation.getByRole('button',{name:'收起项目列表'}));
+ await click(picker);
  await navigation.waitFor({state:'hidden'});
  const exited=new Promise(resolve=>app.once('exit',resolve));
  await invoke(main,'resident_action',{action:'exit'}).catch(()=>{});

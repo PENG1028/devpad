@@ -3,7 +3,7 @@ use tauri::{Emitter,Manager,PhysicalPosition,PhysicalSize,WebviewWindow};
 use crate::{err,Result};
 
 #[derive(Default)]
-pub struct Dock {pub(crate) hidden:bool,pub(crate) moving:bool,ready:bool,dot:bool,enabled:bool,delay:u64,busy:bool,confirm:bool,idle_since:Option<Instant>,origin:Option<PhysicalPosition<i32>>,anchor:Option<PhysicalPosition<i32>>,full_size:Option<PhysicalSize<u32>>,corner:Corner,pinned:bool,prepared:bool,reduced_motion:bool}
+pub struct Dock {pub(crate) hidden:bool,pub(crate) moving:bool,ready:bool,dot:bool,enabled:bool,delay:u64,interacting:bool,confirm:bool,normal_bounds:Option<(PhysicalPosition<i32>,PhysicalSize<u32>)>,idle_since:Option<Instant>,origin:Option<PhysicalPosition<i32>>,anchor:Option<PhysicalPosition<i32>>,full_size:Option<PhysicalSize<u32>>,corner:Corner,pinned:bool,prepared:bool,reduced_motion:bool}
 fn dragging()->bool{#[cfg(windows)]{#[link(name="user32")]extern "system"{fn GetAsyncKeyState(key:i32)->i16;}unsafe{GetAsyncKeyState(1)<0}}#[cfg(not(windows))]{false}}
 fn inside(win:&WebviewWindow)->Result<bool>{let p=win.outer_position().map_err(err)?;let s=win.outer_size().map_err(err)?;let c=win.cursor_position().map_err(err)?;Ok(c.x>=p.x as f64&&c.x<(p.x+s.width as i32)as f64&&c.y>=p.y as f64&&c.y<(p.y+s.height as i32)as f64)}
 pub fn tab_ready(app:&tauri::AppHandle,window:&WebviewWindow)->Result<()>{let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;dock.ready=true;if dock.hidden&&!dock.moving{window.show().map_err(err)?;}Ok(())}
@@ -11,14 +11,14 @@ pub fn start_clock(app:tauri::AppHandle){std::thread::spawn(move||loop{std::thre
 #[tauri::command]
 pub fn notebook_config(app:tauri::AppHandle,enabled:bool,delay_seconds:u64,reduced_motion:Option<bool>)->Result<()>{let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;dock.reduced_motion=reduced_motion.unwrap_or(false);dock.enabled=enabled;dock.delay=delay_seconds.clamp(5,300);dock.idle_since=None;Ok(())}
 #[tauri::command]
-pub fn notebook_pause(window:WebviewWindow,reason:String,paused:bool)->Result<()>{if window.label()!="main"{return Ok(())}let state=window.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;if reason=="confirm"{dock.confirm=paused;}else{dock.busy=paused;}dock.idle_since=None;Ok(())}
+pub fn notebook_pause(window:WebviewWindow,reason:String,paused:bool)->Result<()>{if window.label()!="main"{return Ok(())}let state=window.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;if reason=="confirm"{dock.confirm=paused;}else{dock.interacting=paused;}dock.idle_since=None;Ok(())}
 #[tauri::command]
 pub fn notebook_activity(app:tauri::AppHandle){if let Ok(mut dock)=app.state::<Mutex<Dock>>().lock(){dock.idle_since=None;}}
 #[tauri::command]
 pub async fn notebook_tick(app:tauri::AppHandle,delay_seconds:u64)->Result<bool>{
  let main=app.get_webview_window("main").ok_or(crate::locale::language(&app).text("主窗口未打开"))?;
  let paused=!main.is_visible().map_err(err)?||main.is_minimized().map_err(err)?||main.is_maximized().map_err(err)?||dragging()||inside(&main)?||app.webview_windows().iter().any(|(label,w)|label!="main"&&label!="bubble"&&w.is_visible().unwrap_or(false));
- let collapse={let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;if paused||dock.busy||dock.confirm||dock.moving||dock.hidden{dock.idle_since=None;false}else{dock.idle_since.get_or_insert_with(Instant::now).elapsed()>=Duration::from_secs(delay_seconds.clamp(5,300))}};
+ let collapse={let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;if paused||dock.interacting||dock.confirm||dock.moving||dock.hidden{dock.idle_since=None;false}else{dock.idle_since.get_or_insert_with(Instant::now).elapsed()>=Duration::from_secs(delay_seconds.clamp(5,300))}};
  if collapse {main.emit("notebook-collapse-request",()).map_err(err)?;return Ok(true)}Ok(false)
 }
 // Each transition resizes the main HWND; no replacement webview is created.
@@ -66,11 +66,10 @@ async fn resize_surface(main:&WebviewWindow,p:PhysicalPosition<i32>,from:Physica
 pub async fn notebook_collapse(app:tauri::AppHandle,target:tauri::LogicalPosition<f64>,automatic:Option<bool>)->Result<()> {
  let main=app.get_webview_window("main").ok_or(crate::locale::language(&app).text("主窗口未打开"))?;
  let automatic=automatic.unwrap_or(false);
- if !main.is_visible().map_err(err)?||main.is_minimized().map_err(err)?||main.is_maximized().map_err(err)?{return Ok(())}
+ let maximized=main.is_maximized().map_err(err)?;
+ if !main.is_visible().map_err(err)?||main.is_minimized().map_err(err)?||(automatic&&maximized){return Ok(())}
  if automatic&&(dragging()||inside(&main)?){return Ok(())}
- if app.webview_windows().iter().any(|(label,w)|label!="main"&&w.is_visible().unwrap_or(false)){
-  if automatic{return Ok(())}return Err(crate::locale::language(&app).text("请先关闭辅助窗口，再收起笔记本").into())
- }
+ if automatic&&app.webview_windows().iter().any(|(label,w)|label!="main"&&label!="bubble"&&w.is_visible().unwrap_or(false)){return Ok(())}
  let p=main.outer_position().map_err(err)?;let size=main.outer_size().map_err(err)?;
  let c=Corner{right:true,bottom:false};
  let scale=main.scale_factor().map_err(err)?;
@@ -80,10 +79,15 @@ pub async fn notebook_collapse(app:tauri::AppHandle,target:tauri::LogicalPositio
  let destination=PhysicalPosition::new(client.x+(target.x*scale).round()as i32,client.y+(target.y*scale).round()as i32);
  let pinned=main.is_always_on_top().map_err(err)?;
  let animate={let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;
-  if automatic&&(!dock.enabled||dock.busy||dock.confirm||!dock.idle_since.is_some_and(|since|since.elapsed()>=Duration::from_secs(dock.delay))){return Ok(())}
-  if dock.hidden||dock.moving{return Ok(())}if dock.busy||dock.confirm{return Err(crate::locale::language(&app).text("请先完成当前操作，再收起笔记本").into())}
-  dock.pinned=pinned;dock.moving=true;dock.prepared=false;dock.dot=false;dock.origin=Some(p);dock.full_size=Some(size);dock.corner=c;dock.anchor=Some(destination);!dock.reduced_motion};
+  if automatic&&(!dock.enabled||dock.interacting||dock.confirm||!dock.idle_since.is_some_and(|since|since.elapsed()>=Duration::from_secs(dock.delay))){return Ok(())}
+  if dock.hidden||dock.moving{return Ok(())}if dock.confirm{return Ok(())}
+  dock.normal_bounds=None;dock.pinned=pinned;dock.moving=true;dock.prepared=false;dock.dot=false;dock.origin=Some(p);dock.full_size=Some(size);dock.corner=c;dock.anchor=Some(destination);!dock.reduced_motion};
  let result:Result<()>=async {
+  if maximized {
+   main.unmaximize().map_err(err)?;
+   let normal=(main.outer_position().map_err(err)?,main.outer_size().map_err(err)?);
+   app.state::<Mutex<Dock>>().lock().map_err(err)?.normal_bounds=Some(normal);
+  }
   main.set_min_size(Some(tauri::LogicalSize::new(24.,24.))).map_err(err)?;
   main.set_resizable(false).map_err(err)?;
   main.set_shadow(false).map_err(err)?;
@@ -93,7 +97,7 @@ pub async fn notebook_collapse(app:tauri::AppHandle,target:tauri::LogicalPositio
   main.set_skip_taskbar(true).map_err(err)?;
   surface(&main,"compact",c,size)?;Ok(())
  }.await;
- if result.is_err(){let _=morph_rect(&main,p,size);let _=main.set_min_size(Some(tauri::LogicalSize::new(400.,320.)));let _=main.set_resizable(true);let _=main.set_shadow(true);let _=main.set_skip_taskbar(false);let pinned=app.state::<Mutex<Dock>>().lock().map_err(err)?.pinned;let _=main.set_always_on_top(pinned);let _=surface(&main,"expanded",c,size);}
+ if result.is_err(){let _=morph_rect(&main,p,size);let _=main.set_min_size(Some(tauri::LogicalSize::new(400.,320.)));let _=main.set_resizable(true);let _=main.set_shadow(true);let _=main.set_skip_taskbar(false);let pinned=app.state::<Mutex<Dock>>().lock().map_err(err)?.pinned;let _=main.set_always_on_top(pinned);if maximized{let _=main.maximize();}let _=surface(&main,"expanded",c,size);}
  let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;dock.moving=false;dock.hidden=result.is_ok();dock.idle_since=None;result
 }
 #[tauri::command]
@@ -144,7 +148,7 @@ fn morph_rect(window:&WebviewWindow,position:PhysicalPosition<i32>,size:Physical
 #[tauri::command]
 pub async fn edge_restore(app:tauri::AppHandle,animate:bool)->Result<()> {
  let main=app.get_webview_window("main").ok_or(crate::locale::language(&app).text("主窗口未打开"))?;
- let (compact,stored,c,pinned)={let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;if dock.moving{return Ok(())}dock.moving=true;dock.prepared=false;(dock.hidden,dock.full_size,dock.corner,dock.pinned)};
+ let (compact,stored,c,pinned,anchor,origin,normal)={let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;if dock.moving{return Ok(())}dock.moving=true;dock.prepared=false;(dock.hidden,dock.full_size,dock.corner,dock.pinned,dock.anchor,dock.origin,dock.normal_bounds)};
  let result:Result<()>=async {
   if compact {
    let start=main.outer_position().map_err(err)?;let from=main.outer_size().map_err(err)?;
@@ -152,12 +156,19 @@ pub async fn edge_restore(app:tauri::AppHandle,animate:bool)->Result<()> {
    let stored=stored.unwrap_or(PhysicalSize::new(1040,780));
    let c=nearest_corner(start,from,tauri::Rect{position:area.position.into(),size:area.size.into()});
    // Keep the corner stationary even after dragging to a different monitor.
-   let size=expansion_size(start,from,stored,area.position,area.size,c);
+   let unmoved=anchor==Some(start);
+   let destination=if unmoved{origin}else{None};
+   let size=if unmoved{stored}else{expansion_size(start,from,stored,area.position,area.size,c)};
    surface(&main,"expanding",c,size)?;
-   resize_surface(&main,start,from,size,c,animate,None).await?;
+   resize_surface(&main,start,from,size,c,animate,destination).await?;
    let scale=main.scale_factor().map_err(err)?;
    main.set_min_size(Some(tauri::LogicalSize::new((size.width as f64/scale).min(400.),(size.height as f64/scale).min(320.)))).map_err(err)?;main.set_resizable(true).map_err(err)?;main.set_shadow(true).map_err(err)?;
    main.set_always_on_top(pinned).map_err(err)?;main.set_skip_taskbar(false).map_err(err)?;
+   if let Some((normal_pos,normal_size))=normal {
+    let return_to=if unmoved{normal_pos}else{main.outer_position().map_err(err)?};
+    morph_rect(&main,return_to,normal_size)?;
+    main.maximize().map_err(err)?;
+   }
    surface(&main,"expanded",c,size)?;
   }
   main.unminimize().map_err(err)?;main.show().map_err(err)?;main.set_focus().map_err(err)?;

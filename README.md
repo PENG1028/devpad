@@ -57,7 +57,7 @@ MCP 模式不启动图形窗口，可以单独运行。协议支持 2024-11-05�
 
 | 工具 | 用途 |
 | --- | --- |
-| `list_projects`, `list_notes`, `get_note` | 查询笔记本及笔记，笔记分页 |
+| `list_projects`, `list_note_types`, `list_notes`, `get_note` | 查询项目、内置和自定义类型、分页笔记 |
 | `create_note`, `update_note` | 创建普通笔记，按 revision 修改正文 |
 | `list_tasks`, `get_task` | 查询明确发布的任务和结果 |
 | `claim_task`, `renew_task`, `release_task` | 原子领取、续期和释放 |

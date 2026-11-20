@@ -107,8 +107,7 @@
  } }}>
  <header class="nav-heading">
   <h2 id="project-nav-title">{$t('项目')}</h2>
-  <button id="new-project-button" class="icon-button" aria-label={$t('新建项目')} title={$t('新建项目')} onclick={startCreating}><Icon name="plus" size={18}/></button>
-  <button class="icon-button" aria-label={$t('收起项目列表')} title={$t('收起项目列表')} onclick={onclose}><Icon name="menu" size={18}/></button>
+  <button id="new-project-button" class="icon-button" aria-label={$t('新建项目')} data-tip={$t('新建项目')} onclick={startCreating}><Icon name="plus" size={18}/></button>
  </header>
  <div class="nav-scroll">
   {#if creating}

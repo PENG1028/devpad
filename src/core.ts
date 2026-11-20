@@ -1,4 +1,6 @@
-export const types = ['Bug','UX','Feature','Idea','Question','Note'] as const;
+// These six published keyboard shortcuts retain their original assignments.
+export const shortcutTypes = ['Bug','UX','Feature','Idea','Question','Note'] as const;
+export type CustomType = {id:string;name:string};
 export type Attachment = {id:string;name:string;path:string};
 export type Entry = {revision?:number;id:string;projectId:string;type:string;text:string;createdAt:string;updatedAt:string;tags:string[];attachments:Attachment[];status:string;references:string[]};
 export type Project = {id:string;name:string};
@@ -8,7 +10,7 @@ export function defaultCopyMode(hasText:boolean, hasImages:boolean):CopyMode {
  return hasText ? 'bundle' : 'images';
 }
 export function editorSignature(value:{projectId:string;type:string;text:string;tagInput:string;attachments:Attachment[];references:string[]}){
- return JSON.stringify({projectId:value.projectId,type:value.type,text:value.text.replace(/\r\n?/g,'\n'),tags:tagsOf(value.tagInput).sort(),attachments:value.attachments.map(a=>[a.id,a.name,a.path]),references:[...value.references]});
+ return JSON.stringify({projectId:value.projectId,type:value.type,text:value.text.replace(/\r\n?/g,'\n'),tags:fieldTags(value.tagInput).sort(),attachments:value.attachments.map(a=>[a.id,a.name,a.path]),references:[...value.references]});
 }
 export type DeliverySession = {project:Project; selected:string[]; records:Entry[]; batch:string};
 export function expandEntries(selected:Entry[],all:Entry[]):Entry[]{
@@ -25,7 +27,12 @@ export function deliveryFingerprint(session:DeliverySession){
 export function sourceChanged(session:DeliverySession,entries:Entry[]):boolean{
  return session.records.some(old=>{const current=entries.find(e=>e.id===old.id);if(!current)return true;const {updatedAt:a,...before}=old;const {updatedAt:b,...after}=current;return JSON.stringify(before)!==JSON.stringify(after);}) || session.records.some(e=>e.references.some(id=>!session.records.some(r=>r.id===id)&&entries.some(r=>r.id===id)));
 }
-export function tagsOf(text:string):string[]{return [...new Set([...text.matchAll(/#([\p{L}\p{N}_-]+)/gu)].map(x=>x[1]))];}
+export function tagsOf(text:string):string[]{
+ return [...new Set([...text.normalize('NFC').matchAll(/#([\p{L}\p{N}_-][\p{L}\p{M}\p{N}_-]*)/gu)].map(match=>match[1]))];
+}
+export function fieldTags(value:string):string[]{
+ return tagsOf(value.split(/[\s,，]+/u).filter(Boolean).map(word=>word.startsWith('#')?word:'#'+word).join(' '));
+}
 export type TranslateMessage = (message:string, values?:Record<string,string|number>) => string;
 export const formatMessage:TranslateMessage = (message, values) => {
  if(!values)return message;
@@ -43,7 +50,7 @@ export const exportTemplates:ExportTemplate[] = [
  {id:'discussion',name:'讨论分析',body:'请根据以下资料进行分析：\n\n{{content}}\n\n{{image_map}}',metadata:false,references:false,numberImages:false},
  {id:'engineering',name:'工程任务',body:'请根据以下内容实施修改，并说明验证结果：\n\n{{content}}\n\n{{image_map}}',metadata:false,references:true,numberImages:false}
 ];
-export function compose(project:string,entries:Entry[],all:Entry[]=entries,batch='PREVIEW',template:ExportTemplate=exportTemplates[0],translate:TranslateMessage=formatMessage){
+export function compose(project:string,entries:Entry[],all:Entry[]=entries,batch='PREVIEW',template:ExportTemplate=exportTemplates[0],translate:TranslateMessage=formatMessage,typeLabel:(id:string)=>string=id=>id){
  const records=template.references?expandEntries(entries,all):entries;
  const files:{source:string;name:string;record:number;picture:number;attachmentId:string;mark?:{record:number;picture:number;batch:string}}[]=[];
  const imageMap:string[]=[];
@@ -59,7 +66,7 @@ export function compose(project:string,entries:Entry[],all:Entry[]=entries,batch
   if(!template.metadata)return e.text;
   const status=translate('状态：{status}',{status:e.status});
   const tags=e.tags.length?'\n'+translate('标签：{tags}',{tags:e.tags.join(', ')}):'';
-  return `## ${i+1}. ${e.type}\n\n${e.text}\n\n${status}${tags}`;
+  return `## ${i+1}. ${typeLabel(e.type)}\n\n${e.text}\n\n${status}${tags}`;
  }).join('\n\n');
  const variables:Record<string,string>={content,image_map:imageMap.join('\n\n'),project,batch};
  const rendered=template.body.replace(/\{\{\s*([^{}]*?)\s*\}\}/g,(_,key:string)=>{key=key.trim();if(!Object.hasOwn(variables,key))throw new Error(translate('未知模板变量：{key}',{key}));return variables[key];});
@@ -68,13 +75,21 @@ export function compose(project:string,entries:Entry[],all:Entry[]=entries,batch
 
 export function originalOutput(entries:Entry[],translate:TranslateMessage=formatMessage){
  const output=compose('',entries,entries,'',undefined,translate);
- const clipboardText=output.manifest.records.map(record=>[
+ const names=new Map<string,number>();
+ const filenameKey=(value:string)=>value.normalize('NFC').toLowerCase();
+ for(const record of output.manifest.records)for(const file of record.files){
+  const key=filenameKey(file.originalName);names.set(key,(names.get(key)??0)+1);
+ }
+ const records=output.manifest.records.map(record=>({...record,files:record.files.map(file=>({...file,
+  displayName:(names.get(filenameKey(file.originalName))??0)>1?file.name:file.originalName,
+ }))}));
+ const clipboardText=records.map(record=>[
   record.text,
-  ...record.files.map(file=>'['+translate('图片')+'] '+file.originalName),
+  ...record.files.map(file=>'['+translate('图片')+'] '+file.displayName),
  ].filter(Boolean).join('\n')).join('\n\n');
  const markdown=output.manifest.records.map(record=>[
   record.text,
   ...record.files.map(file=>`![${translate('图片')}](<${encodeURIComponent(file.name)}>)`),
  ].filter(Boolean).join('\n\n')).join('\n\n');
- return {...output,markdown,clipboardText,manifest:{...output.manifest,kind:'journal'}};
+ return {...output,markdown,clipboardText,manifest:{...output.manifest,records,kind:'journal'}};
 }

@@ -94,6 +94,10 @@ jobs:
         run: node tests/native-product-smoke.cjs
         env:
           DEVPAD_TEST_EXE: src-tauri/target/${{ matrix.target }}/release/devpad.exe
+      - if: runner.os == 'Windows'
+        run: python tests/windows-paste.py
+        env:
+          DEVPAD_TEST_EXE: src-tauri/target/${{ matrix.target }}/release/devpad.exe
       - run: node scripts/stage-release.mjs ${{ matrix.target }} ${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
         with:

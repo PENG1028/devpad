@@ -32,6 +32,7 @@ const server=http.createServer((req,res)=>{
    window.calls=[];
    window.failCopy=false;
    const data={
+    noteTypes:[],
     projects:[{id:'a',name:'DevPad'},{id:'b',name:'设计整理'}],
     entries:Array.from({length:12},(_,i)=>({
      id:String(i),projectId:i===11?'b':'a',type:i===0?'Draft':'Note',
@@ -47,6 +48,10 @@ const server=http.createServer((req,res)=>{
     invoke:async(cmd,args)=>{
      window.calls.push({cmd,args});
      if(cmd==='load')return JSON.parse(JSON.stringify(data));
+     if(cmd==='create_note_type'){
+      const existing=data.noteTypes.find(kind=>kind.name.toLowerCase()===args.name.toLowerCase());if(existing)return existing;
+      const kind={id:'kind-'+data.noteTypes.length,name:args.name};data.noteTypes.push(kind);return kind;
+     }
      if(cmd==='create_project'){const project={id:'new-'+data.projects.length,name:args.name};data.projects.push(project);return project;}
      if(cmd==='save_entry')data.entries.unshift(args.entry);
      if(cmd==='copy_bundle'&&window.failCopy){window.failCopy=false;throw Error('剪贴板暂时不可用');}
@@ -75,20 +80,20 @@ const server=http.createServer((req,res)=>{
   assert.ok(!single.files[0].mark);
   assert.match(single.files[0].name,/^001-/);
   await richCopy.press('ArrowDown');
-  const onlyText=notes.first().getByRole('button',{name:'复制正文',exact:true});
+  const onlyText=notes.first().getByRole('button',{name:'仅复制正文',exact:true});
   assert.ok(await onlyText.evaluate(n=>n===document.activeElement));
   await onlyText.press('Enter');
   assert.equal((await lastArgs('copy_text')).text,firstText);
   await notes.nth(1).getByRole('button',{name:'复制图片',exact:true}).click();
   assert.match((await lastArgs('copy_image')).path,/#1$/);
   await richCopy.hover();
-  await notes.first().getByRole('button',{name:'复制图片',exact:true}).click();
+  await notes.first().getByRole('button',{name:'仅复制图片',exact:true}).click();
   assert.match((await lastArgs('copy_image')).path,/#0$/);
   const rowMenu=notes.first().locator('.note-menu');
   await rowMenu.evaluate(n=>{n.click();n.click();});
   assert.equal(await rowMenu.getAttribute('aria-expanded'),'false');
   await rowMenu.click();
-  await page.getByRole('menuitem',{name:'复制正文',exact:true}).click();
+  await page.getByRole('menuitem',{name:'仅复制正文',exact:true}).click();
   assert.equal((await lastArgs('copy_text')).text,firstText);
 
   const list=page.locator('.notes-scroll');
@@ -141,7 +146,7 @@ const server=http.createServer((req,res)=>{
   await page.keyboard.press('Control+c');
   assert.deepEqual((await lastArgs('copy_bundle')).manifest.records.map(note=>note.id),['0','2']);
   await page.evaluate(()=>window.failCopy=true);
-  await toolbar.getByRole('button',{name:'复制图文',exact:true}).click();
+  await toolbar.getByRole('button',{name:'复制',exact:true}).click();
   await page.getByRole('alert').getByText('剪贴板暂时不可用').waitFor();
   await boxes.nth(1).click();
   await page.getByRole('button',{name:'重试',exact:true}).click();
@@ -217,12 +222,18 @@ const server=http.createServer((req,res)=>{
   await page.getByRole('button',{name:'更多',exact:true}).click();
   await page.getByRole('combobox',{name:'主题'}).click();
   await page.getByRole('option',{name:'浅色',exact:true}).click();
+  const frame=()=>page.locator('.settings-tabs').evaluate(node=>{
+   const rect=node.getBoundingClientRect(),dialog=node.closest('dialog').getBoundingClientRect();return [rect.x,rect.y,dialog.x,dialog.y,dialog.height];
+  });
+  const generalFrame=await frame();
   const general=page.getByRole('tab',{name:'通用'});
   await general.focus();
   await page.keyboard.press('ArrowRight');
   await page.getByRole('button',{name:'新建引用草稿'}).waitFor();
+  assert.deepEqual(await frame(),generalFrame);
   await page.keyboard.press('End');
   await page.getByRole('button',{name:'版本与更新'}).waitFor();
+  assert.deepEqual(await frame(),generalFrame);
   await page.keyboard.press('Home');
   await page.getByRole('checkbox',{name:'主窗口置顶'}).check();
   assert.ok(await page.getByRole('checkbox',{name:'主窗口置顶'}).isChecked());
@@ -238,7 +249,7 @@ const server=http.createServer((req,res)=>{
   await picker.click();
   await page.keyboard.press('Escape');
   assert.equal(await list.evaluate(node=>node.scrollTop),peekPosition);
-  assert.equal((await picker.innerText()).trim(),'全部记录');
+  assert.equal((await page.locator('.current-project').innerText()).trim(),'全部记录');
   await list.evaluate(node=>node.scrollTop=0);
   await picker.click();
   assert.equal(await drawer.evaluate(node=>node.matches(':modal')),false);
@@ -249,7 +260,7 @@ const server=http.createServer((req,res)=>{
   await page.getByText('存到 DevPad',{exact:true}).waitFor();
   await editor.press('Control+Enter');
   assert.equal((await lastArgs('save_entry')).entry.projectId,'a');
-  assert.equal((await picker.innerText()).trim(),'设计整理');
+  assert.equal((await page.locator('.current-project').innerText()).trim(),'设计整理');
   await editor.fill('切换项目后的下一条');
   await editor.press('Control+Enter');
   await notes.getByText('切换项目后的下一条').waitFor();
@@ -258,9 +269,9 @@ const server=http.createServer((req,res)=>{
   await chooseProject('DevPad');
   await page.keyboard.press('ArrowDown');
   assert.ok(await drawer.getByRole('button',{name:'设计整理'}).evaluate(n=>n===document.activeElement));
-  assert.equal((await picker.innerText()).trim(),'DevPad');
+  assert.equal((await page.locator('.current-project').innerText()).trim(),'DevPad');
   await page.keyboard.press('Enter');
-  assert.equal((await picker.innerText()).trim(),'设计整理');
+  assert.equal((await page.locator('.current-project').innerText()).trim(),'设计整理');
   await page.keyboard.press('Control+f');
   assert.ok(await search.evaluate(n=>n===document.activeElement));
   await page.keyboard.press('Escape');
@@ -276,6 +287,7 @@ const server=http.createServer((req,res)=>{
   assert.equal(await picker.getAttribute('aria-expanded'),'true');
   await page.keyboard.press('Space');
   await actions.waitFor();
+  assert.ok(await actions.evaluate(menu=>menu.scrollTop===0&&menu.querySelector('button').getBoundingClientRect().top>=menu.getBoundingClientRect().top));
   await page.keyboard.press('Tab');
   await actions.waitFor({state:'hidden'});
   assert.ok(await page.evaluate(()=>document.activeElement!==document.body));
@@ -287,7 +299,8 @@ const server=http.createServer((req,res)=>{
   await page.screenshot({path:path.join(screenshots,'project-navigation-compact.png')});
   await page.setViewportSize({width:900,height:640});
   await page.waitForFunction(()=>!document.querySelector('#project-navigation').matches(':modal'));
-  await drawer.getByRole('button',{name:'收起项目列表'}).click();
+  assert.equal(await drawer.locator('.nav-heading button').count(),1);
+  await picker.click();
   assert.equal(await page.locator('.journal-workspace').evaluate(n=>n.getBoundingClientRect().left),0);
   assert.equal(await page.locator('#project-navigation').evaluate(n=>getComputedStyle(n).transitionDuration),'0s');
 
@@ -331,8 +344,56 @@ const server=http.createServer((req,res)=>{
   assert.equal(await projectName.inputValue(),'新建的项目');
   await drawer.getByRole('button',{name:'创建项目'}).click();
   await drawer.locator('[aria-current="page"]').getByText('新建的项目').waitFor();
-  await drawer.getByRole('button',{name:'收起项目列表'}).click();
+  assert.equal(await drawer.locator('.nav-heading button').count(),1);
+  await drawer.locator('.nav-footer button').click();
   await page.waitForFunction(()=>document.querySelector('.journal-workspace').getBoundingClientRect().left===0);
+  await page.setViewportSize({width:1040,height:780});
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await picker.click();await chooseProject('全部记录');
+  await drawer.locator('#new-project-button').hover();
+  await page.getByRole('tooltip',{name:'新建项目'}).waitFor();
+  assert.equal(await drawer.locator('#new-project-button').getAttribute('title'),null);
+  await page.mouse.move(600,50);
+  await page.getByRole('tooltip').waitFor({state:'hidden'});
+  await page.keyboard.press('Control+f');
+  assert.ok((await search.getAttribute('placeholder')).includes('全部记录'));
+  const unfiltered=await notes.count();
+  await search.dispatchEvent('compositionstart');
+  await search.fill('示意图');
+  assert.equal(await notes.count(),unfiltered);
+  await search.dispatchEvent('compositionend');
+  assert.equal(await notes.count(),2);
+  await page.keyboard.press('Escape');
+  const imageFilter=drawer.getByRole('checkbox',{name:'有图片'});
+  if(!await imageFilter.isVisible())await drawer.getByRole('button',{name:'筛选记录'}).click();
+  await imageFilter.check();assert.equal(await notes.count(),2);
+  const fields=drawer.locator('.filter-fields .select-field');
+  const widths=await fields.evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().width));
+  assert.equal(new Set(widths).size,1);
+  const kinds=drawer.getByRole('combobox',{name:'类型 · 可多选'});
+  await kinds.click();await page.getByRole('option',{name:'引用草稿',exact:true}).click();
+  assert.equal(await notes.count(),1);
+  await page.getByRole('option',{name:'笔记',exact:true}).click();
+  assert.equal(await notes.count(),2);
+  await page.keyboard.press('Escape');
+  await drawer.getByRole('button',{name:'清除筛选'}).click();
+  await chooseProject('新建的项目');await picker.click();
+  await page.getByRole('button',{name:'记一条'}).click();
+  await editor.fill('展览样片');await page.getByRole('button',{name:'整理',exact:true}).click();
+  await page.getByRole('combobox',{name:'笔记类型'}).click();
+  await page.getByRole('textbox',{name:'类型名称'}).fill('采访');
+  await page.getByRole('button',{name:'新建类型 · 采访'}).click();
+  assert.equal(await page.getByRole('combobox',{name:'笔记类型'}).innerText(),'采访');
+  await page.getByRole('textbox',{name:'笔记标签'}).fill('展览 #侧栏');
+  await editor.press('Control+Enter');
+  assert.deepEqual((await lastArgs('save_entry')).entry.tags,['展览','侧栏']);
+  await notes.getByText('采访',{exact:true}).waitFor();await editor.press('Escape');
+  await picker.click();await chooseProject('DevPad');await picker.click();
+  await page.getByRole('button',{name:'记一条'}).click();
+  await page.getByRole('button',{name:'整理',exact:true}).click();
+  await page.getByRole('textbox',{name:'笔记标签'}).focus();
+  await page.getByRole('button',{name:'#侧栏',exact:true}).click();
+  assert.equal((await page.getByRole('textbox',{name:'笔记标签'}).inputValue()).trim(),'#侧栏');
   assert.deepEqual(errors,[]);
   const notebookUrl=page.url();
   await page.close();

@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use std::{fs, path::{Path, PathBuf}, sync::{Mutex, RwLock}};
 use tauri::Manager;
 mod docking;
+mod note_types;
 mod delivery;
 mod resident;
 mod drafts;
@@ -50,7 +51,8 @@ fn load(s: tauri::State<Store>) -> Result<Value> {
     let mut q=db.prepare("SELECT payload FROM entries ORDER BY rowid DESC").map_err(err)?;
     let rows=q.query_map([],|r|r.get::<_,String>(0)).map_err(err)?.collect::<std::result::Result<Vec<_>,_>>().map_err(err)?;
     let entries=rows.iter().map(|v|serde_json::from_str::<Value>(v).map_err(err)).collect::<Result<Vec<_>>>()?;
-    Ok(json!({"projects":projects,"entries":entries,"dataDir":s.root}))
+    let note_types=note_types::custom(&db)?;
+    Ok(json!({"projects":projects,"entries":entries,"noteTypes":note_types,"dataDir":s.root}))
 }
 #[tauri::command]
 fn create_project(s:tauri::State<Store>, name:String)->Result<Value>{
@@ -70,10 +72,10 @@ fn write_record(s:&Store,mut entry:Value,draft_id:Option<&str>)->Result<()> {
     if !["Open","Done"].contains(&entry["status"].as_str().unwrap_or("")){return Err(s.language().text("未知记录状态").into())}
     let id=entry["id"].as_str().ok_or(s.language().text("缺少记录 ID"))?;
     let project=entry["projectId"].as_str().ok_or(s.language().text("缺少项目"))?;
-    if !["Bug","UX","Feature","Idea","Question","Note","Draft"].contains(&entry["type"].as_str().unwrap_or("")) {return Err(s.language().text("未知记录类型").into())}
     for a in entry["attachments"].as_array().ok_or(s.language().text("附件格式错误"))? {attachment_path(&s,a["path"].as_str().ok_or(s.language().text("附件路径错误"))?)?;}
     let mut db=s.db.lock().map_err(err)?;
     let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+    if !note_types::known(&tx, entry["type"].as_str().unwrap_or(""))? {return Err(s.language().text("未知记录类型").into())}
     let id=id.to_string();let project=project.to_string();
     let previous:Option<String>=tx.query_row("SELECT payload FROM entries WHERE id=?1",[&id],|r|r.get(0)).optional().map_err(err)?;
     let expected=entry["revision"].as_u64().unwrap_or(0);
@@ -131,8 +133,7 @@ fn store_image(s:&Store, name:String, bytes:Vec<u8>)->Result<Value>{
 // Read only in response to an explicit paste action, never by polling.
 fn read_clipboard(s:&Store)->Result<Value>{
     #[cfg(target_os="windows")]
-    if let Ok(paths)=clipboard_win::get_clipboard::<Vec<String>,_>(clipboard_win::formats::FileList) {
-        if !paths.is_empty(){
+    if let Some((paths,text))=clipboard::image_files_and_text() {
             let mut attachments=Vec::new();
             // Validate the complete list before importing any files.
             let mut images=Vec::new();
@@ -144,8 +145,7 @@ fn read_clipboard(s:&Store)->Result<Value>{
                 images.push(p);
             }
             for p in images {attachments.push(store_image(s,p.file_name().unwrap().to_string_lossy().into(),fs::read(&p).map_err(err)?)?);}
-            return Ok(json!({"attachments":attachments,"text":""}));
-        }
+            return Ok(json!({"attachments":attachments,"text":text}));
     }
     let mut clipboard=arboard::Clipboard::new().map_err(err)?;
     match clipboard.get_image(){
@@ -243,7 +243,7 @@ fn migrate_records(db:&mut Connection,root:&Path)->Result<()> {
 fn initialize_database(db:&mut Connection,root:&Path)->Result<()> {
  db.busy_timeout(std::time::Duration::from_secs(5)).map_err(err)?;
  db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,name TEXT NOT NULL); CREATE TABLE IF NOT EXISTS entries(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),payload TEXT NOT NULL); CREATE INDEX IF NOT EXISTS entries_project ON entries(project_id);").map_err(err)?;
- migrate_records(db,root)?;drafts::schema(db)?;tasks::schema(db)?;
+ migrate_records(db,root)?;note_types::schema(db)?;drafts::schema(db)?;tasks::schema(db)?;
  db.execute("INSERT INTO projects(id,name) SELECT 'inbox','收件箱' WHERE NOT EXISTS(SELECT 1 FROM projects)",[]).map_err(err)?;Ok(())
 }
 fn main(){if std::env::args().any(|arg|arg=="--mcp"){if let Err(error)=mcp::run(){eprintln!("DevPad MCP: {error}");std::process::exit(1);}return;}let mut context=tauri::generate_context!();if let Some(root)=std::env::var_os("DEVPAD_DATA_DIR"){use std::hash::{Hash,Hasher};let mut hash=std::collections::hash_map::DefaultHasher::new();root.hash(&mut hash);context.config_mut().identifier=format!("local.devpad.test-{:x}",hash.finish());}resident::set_application_id(&context.config().identifier).expect("设置应用标识失败");tauri::Builder::default()
@@ -266,7 +266,7 @@ fn main(){if std::env::args().any(|arg|arg=="--mcp"){if let Err(error)=mcp::run(
     resident::setup(app)?;
     let handle=app.handle().clone();std::thread::spawn(move||{use tauri::Emitter;let mut previous=0_i64;loop{std::thread::sleep(std::time::Duration::from_secs(2));let s=handle.state::<Store>();if let Ok(db)=s.db.lock(){if let Ok(version)=db.query_row("PRAGMA data_version",[],|r|r.get::<_,i64>(0)){if version!=previous{let _=handle.emit("db-changed",());}previous=version;}};}});
     docking::start_clock(app.handle().clone());Ok(())
-}).invoke_handler(tauri::generate_handler![load,create_project,save_entry,batch,move_entries,add_image,paste_clipboard,copy_text,copy_image,copy_images,export_bundle,open_aux,window_payload,editor_dirty,editor_release,editor_windows,focus_editor,exit_decision,window_ready,locale::get_locale,locale::set_locale,docking::notebook_surface_ready,docking::notebook_drag,edge_check,edge_restore,return_to_list,hide_to_tray,exit_app,resident_action,startup_enabled,set_startup,notebook_tick,notebook_config,notebook_pause,notebook_activity,notebook_collapse,bubble_status,bubble_settle,drafts::save_draft,drafts::list_drafts,drafts::discard_draft,updates::update_info,updates::set_update_channel,updates::check_update,updates::install_update,tasks::publish_task,tasks::list_tasks,tasks::cancel_task,tasks::mcp_config,clipboard::copy_bundle]).run(context).expect("DevPad 启动失败");}
+}).invoke_handler(tauri::generate_handler![load,note_types::create_note_type,create_project,save_entry,batch,move_entries,add_image,paste_clipboard,copy_text,copy_image,copy_images,export_bundle,open_aux,window_payload,editor_dirty,editor_release,editor_windows,focus_editor,exit_decision,window_ready,locale::get_locale,locale::set_locale,docking::notebook_surface_ready,docking::notebook_drag,edge_check,edge_restore,return_to_list,hide_to_tray,exit_app,resident_action,startup_enabled,set_startup,notebook_tick,notebook_config,notebook_pause,notebook_activity,notebook_collapse,bubble_status,bubble_settle,drafts::save_draft,drafts::list_drafts,drafts::discard_draft,updates::update_info,updates::set_update_channel,updates::check_update,updates::install_update,tasks::publish_task,tasks::list_tasks,tasks::cancel_task,tasks::mcp_config,clipboard::copy_bundle]).run(context).expect("DevPad 启动失败");}
 
 #[cfg(test)]
 mod tests {

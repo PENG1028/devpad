@@ -24,9 +24,12 @@
  import ConfirmDialog from './ConfirmDialog.svelte';
  let {suspended=false}=$props<{suspended?:boolean}>();
  let confirmation:ConfirmDialog;
- import { types, tagsOf, editorSignature, compose, createDelivery, originalOutput, defaultCopyMode, sourceChanged, type CopyMode, type DeliverySession, type Entry, type Project, type Attachment } from './core';
+ import builtinTypes from './note-types.json';
+ import TagField from './TagField.svelte';
+ import { shortcutTypes, fieldTags, type CustomType, tagsOf, editorSignature, compose, createDelivery, originalOutput, defaultCopyMode, sourceChanged, type CopyMode, type DeliverySession, type Entry, type Project, type Attachment } from './core';
  type Panel='agents'|'publish'|'help'|'updates'|'templates'|'drafts'|'projects'|'filters'|'more'|'entry'|'delivery'|'new-project'|'image'|'windows'|'move'|null;
  let projects:Project[]=$state([]), entries:Entry[]=$state([]), projectId=$state('');
+ let customTypes:CustomType[]=$state([]), hasImages=$state(false), composingSearch=false;
  let search=$state(''), filterTypes:string[]=$state([]), status=$state(''), tag=$state('');
  let text=$state(''), type=$state('Note'), tagInput=$state(''), attachments:Attachment[]=$state([]), references:string[]=$state([]), editing=$state(''), draftProjectId=$state('');
  let selected:string[]=$state([]), anchor=$state(''), selecting=$state(false), expanded=$state(false), searching=$state(false);
@@ -106,7 +109,7 @@
   if(open && !recordMenuOpen && !panel && !selecting)copyOptionsFor=id;
   else if(copyOptionsFor===id)copyOptionsFor='';
  }
- function toggleSelection(){dismissMenus();if(selecting){selecting=false;selected=[];anchor='';}else void selectMode();}
+ function toggleSelection(){collapseFeedback='';dismissMenus();if(selecting){selecting=false;selected=[];anchor='';}else void selectMode();}
  async function openMove(ids:string[]){dismissMenus();moveIds=[...ids];moveTarget=moveProjects[0]?.id||'';panel='move';await tick();if(!modal.open)modal.showModal();}
  async function moveNotes(){if(busy||!moveTarget||!moveIds.length)return;busy=true;await run(async()=>{await invoke('move_entries',{ids:moveIds,projectId:moveTarget,updatedAt:new Date().toISOString()});await emit('db-changed');await refresh();selected=[];selecting=false;closePanel();announce('已移动 {count} 条笔记到 {project}',{count:moveIds.length,project:displayProject(projects.find(p=>p.id===moveTarget),$t('目标项目'))});});busy=false;}
  const auxiliary=isTauri()&&windowKind!=='main';
@@ -141,9 +144,9 @@
  function announce(key:string,values?:Record<string,string|number>){notice={key,values};}
  function editorReport(){return {dirty,busy:busy||!initialized,entry:editing,project:displayProject(draftProject,draftProjectId),summary:text.slice(0,60)||(attachments.length?$t('图片笔记'):$t('新笔记')),fingerprint:JSON.stringify(draftPayload())};}
  $effect(()=>{if(canDraft&&initialized)void invoke('editor_dirty',editorReport());});
- function snapshot(){return {projectId,selected:[...selected],filterTypes:[...filterTypes],status,tag,search,projectName};}
+ function snapshot(){return {projectId,selected:[...selected],filterTypes:[...filterTypes],status,tag,hasImages,search,projectName};}
  let filterKey='';
- $effect(()=>{const next=JSON.stringify({projectId,filterTypes,status,tag,search});if(filterKey!==next){filterKey=next;selected=[];anchor='';}});
+ $effect(()=>{const next=JSON.stringify({projectId,filterTypes,status,tag,hasImages,search});if(filterKey!==next){filterKey=next;selected=[];anchor='';}});
  async function sendMain(action:string,data:unknown={}){await emitTo('main','main-action',{action,data});}
  async function openEditor(data:Record<string,unknown>={}){await run(async()=>{await invoke('open_aux',{kind:'editor',payload:{projectId:defaultProjectId,...data}});});}
  async function acceptAux(payload:any){
@@ -160,7 +163,7 @@
   if(windowKind==='delivery'&&payload.kind!=='delivery')return;
   if(windowKind==='image'&&payload.kind!=='image')return;
   if(payload.kind==='delivery'){deliverySession=data.session;deliveryBatch=data.session.batch;deliveryOrder='selected';deliveryFormat='original';}
-  preview=data.preview||null;projectId=data.projectId||projectId;selected=data.selected||[];filterTypes=data.filterTypes||[];status=data.status||'';tag=data.tag||'';search=data.search||'';projectName=data.projectName||'';
+  preview=data.preview||null;projectId=data.projectId||projectId;selected=data.selected||[];filterTypes=data.filterTypes||[];status=data.status||'';tag=data.tag||'';hasImages=!!data.hasImages;search=data.search||'';projectName=data.projectName||'';
   panel=payload.kind;await tick();if(!modal.open)modal.show();
   const prompt=modal.querySelector<HTMLTextAreaElement>('.prompt-preview');if(prompt){prompt.setSelectionRange(0,0);prompt.scrollTop=0;}
  }
@@ -194,37 +197,64 @@
  let notebookMode=$state(localStorage.getItem('devpad-notebook-mode')==='true');
  let notebookDelay=$state(Number(localStorage.getItem('devpad-notebook-delay'))||30);
  let notebookSleeping=false;
- const pauseNotebook=$derived(busy||!!panel||navigationOpen||recordMenuOpen||batchMenuOpen||!!copyOptionsFor||selecting||!!preview||dragging);
- $effect(()=>{if(!auxiliary&&isTauri())void invoke('notebook_pause',{reason:'busy',paused:pauseNotebook});});
+ const notebookBlocked=$derived(busy||!!annotating||updateLocked);
+ let collapsing=false, collapseFeedback=$state('');
+ $effect(()=>{if(!notebookBlocked)collapseFeedback='';});
+ const pauseNotebook=$derived(notebookBlocked||expanded||searching||!!panel||navigationOpen||recordMenuOpen||batchMenuOpen||!!copyOptionsFor||selecting||!!preview||dragging);
+ $effect(()=>{if(!auxiliary&&isTauri())void invoke('notebook_pause',{reason:'interaction',paused:pauseNotebook});});
  async function syncNotebook(){await invoke('notebook_config',{enabled:notebookMode,delaySeconds:notebookDelay,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches});}
  function notebookActivity(){if(!auxiliary&&notebookMode&&!notebookSleeping&&!suspended)void invoke('notebook_activity');}
  function chooseNotebook(enabled:boolean){notebookMode=enabled;localStorage.setItem('devpad-notebook-mode',String(enabled));if(!auxiliary&&isTauri())void run(syncNotebook);}
  function chooseDelay(value:number){notebookDelay=value;localStorage.setItem('devpad-notebook-delay',String(value));if(!auxiliary&&isTauri())void run(syncNotebook);}
  async function collapseNotebook(automatic=false){
-  if(suspended||(automatic&&(!notebookMode||pauseNotebook)))return;
+  if(suspended||collapsing||confirmation?.isOpen()||(automatic&&(!notebookMode||pauseNotebook)))return;
+  if(notebookBlocked){if(!automatic)collapseFeedback=$t('笔记本正在处理文件');return;}
   const rect=document.querySelector('[data-notebook-collapse]')?.getBoundingClientRect();if(!rect)return;
-  await run(async()=>{await invoke('notebook_collapse',{automatic,target:{x:rect.left+(rect.width-36)/2,y:rect.top+(rect.height-36)/2}});});
+  collapsing=true;collapseFeedback='';
+  try {
+   if(!automatic){dismissMenus();window.dispatchEvent(new Event('dismiss-note-popovers'));}
+   if(canDraft&&dirty)await persistDraft();
+   await invoke('notebook_collapse',{automatic,target:{x:rect.left+(rect.width-36)/2,y:rect.top+(rect.height-36)/2}});
+  }catch(e){if(!automatic)collapseFeedback=String(e);}
+  finally{collapsing=false;}
  }
 
  function dragOver(event:DragEvent){if(suspended)return;if(panelWindow)return;if(Array.from(event.dataTransfer?.types||[]).includes('Files')){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='copy';dragging=true;}}
  function dragEnter(event:DragEvent){if(suspended)return;if(panelWindow)return;if(Array.from(event.dataTransfer?.types||[]).includes('Files')){event.preventDefault();dragDepth++;dragging=true;}}
  function dragLeave(){dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)dragging=false;}
 
- const labels=$derived<Record<string,string>>({Bug:$t('Bug'),UX:$t('体验'),Feature:$t('功能'),Idea:$t('想法'),Question:$t('疑问'),Note:$t('笔记'),Draft:$t('Draft'),Open:$t('待处理'),Done:$t('已完成'),});
+ const typeOptions=$derived([
+  ...builtinTypes.filter(kind=>kind.id!=='Draft').map(kind=>({value:kind.id,label:$t(kind.label),group:$t(kind.group)})),
+  ...customTypes.map(kind=>({value:kind.id,label:kind.name,group:$t('自定义')})),
+  {value:'Draft',label:$t('引用草稿'),group:$t('工具')},
+ ]);
+ const labels=$derived<Record<string,string>>(Object.fromEntries([
+  ...typeOptions.map(option=>[option.value,option.label]),['Open',$t('待处理')],['Done',$t('已完成')],
+ ]));
+ async function addType(name:string){
+  if(Array.from(name).length>40)throw new Error($t('类型名称需为 1–40 个字符'));
+  const kind=await invoke<CustomType>('create_note_type',{name});
+  await refresh();type=kind.id;
+  if(isTauri())await emit('db-changed');
+ }
+ function toggleTypeFilter(id:string){filterTypes=!id?[]:filterTypes.includes(id)?filterTypes.filter(value=>value!==id):[...filterTypes,id];}
+ const filterCount=$derived(filterTypes.length+Number(!!status)+Number(!!tag)+Number(hasImages));
+ function tracksStatus(e:Entry){return ['Bug','UX','Feature','Idea','Question','Draft'].includes(e.type)||e.status==='Done';}
  const panelTitles=$derived<Record<string,string>>({agents:$t('Agent 与 MCP'),publish:$t('发布任务'),help:$t('帮助'),updates:$t('版本与更新'),templates:$t('导出模板'),drafts:$t('恢复草稿'),'projects':$t('项目'),'filters':$t('项目与筛选'),'more':$t('设置与工具'),'entry':$t('笔记操作'),'delivery':$t('模板与完整导出'),'new-project':$t('新建项目'),'image':$t('图片预览'),'windows':$t('已打开笔记'),'move':$t('移动到其他项目')});
  function displayProject(value:Project|undefined,fallback=''){return value?projectLabel(value,$t):fallback;}
  const project=$derived(projects.find(p=>p.id===projectId));
  const draftProject=$derived(projects.find(p=>p.id===draftProjectId));
  const defaultProjectId=$derived(projectId||projects.find(p=>p.id==='inbox')?.id||projects[0]?.id||'');
  const projectEntries=$derived(projectId?entries.filter(e=>e.projectId===projectId):entries);
- const tags=$derived([...new Set(projectEntries.flatMap(e=>e.tags))].sort());
+ const tags=$derived([...new Set(projectEntries.flatMap(e=>e.tags))].sort((a,b)=>a.localeCompare(b,$locale)));
+ const allTags=$derived([...new Set(entries.flatMap(e=>e.tags))].sort((a,b)=>a.localeCompare(b,$locale)));
  function matchesSearch(entry:Entry){
   if(!search)return true;
   const owner=projects.find(p=>p.id===entry.projectId);
-  const fields=[entry.text,...entry.tags,owner?.name||'',displayProject(owner)];
-  return fields.join(' ').toLowerCase().includes(search.trim().toLowerCase());
+  const fields=[entry.text,...entry.tags,...entry.attachments.map(image=>image.name),owner?.name||'',displayProject(owner)];
+  return fields.join(' ').normalize('NFC').toLocaleLowerCase($locale).includes(search.trim().normalize('NFC').toLocaleLowerCase($locale));
  }
- const visible=$derived(projectEntries.filter(e=>(!filterTypes.length||filterTypes.includes(e.type))&&(!status||e.status===status)&&(!tag||e.tags.includes(tag))&&matchesSearch(e)).sort((a,b)=>Date.parse(b.createdAt)-Date.parse(a.createdAt)));
+ const visible=$derived(projectEntries.filter(e=>(!filterTypes.length||filterTypes.includes(e.type))&&(!status||(tracksStatus(e)&&e.status===status))&&(!hasImages||e.attachments.length>0)&&(!tag||e.tags.includes(tag))&&matchesSearch(e)).sort((a,b)=>Date.parse(b.createdAt)-Date.parse(a.createdAt)));
  const chosen=$derived(projectEntries.filter(e=>selected.includes(e.id)).sort((a,b)=>a.createdAt.localeCompare(b.createdAt)));
  let deliverySession:DeliverySession|null=$state(null);
  let deliveryOrder=$state('selected');
@@ -238,7 +268,7 @@
  const bundle=$derived.by(()=>{
   const sourceProject=deliverySession?.project??project;
   const projectName=sourceProject?.id?displayProject(sourceProject):$t('工作日志');
-  return compose(projectName,deliveryEntries,deliverySession?.records||entries,deliveryBatch,templateForLocale(exportTemplate,$t),$t);
+  return compose(projectName,deliveryEntries,deliverySession?.records||entries,deliveryBatch,templateForLocale(exportTemplate,$t),$t,id=>labels[id]??id);
  });
  const deliveryOriginal=$derived(originalOutput(deliveryEntries,$t));
  const staleSource=$derived(!!deliverySession&&sourceChanged(deliverySession,entries));
@@ -274,10 +304,12 @@
  async function showWindows(){
   await run(async()=>{openWindows=await invoke('editor_windows');panel='windows';await tick();if(!modal.open)modal.showModal();});
  }
+ const openStatusIds=$derived(chosen.filter(e=>tracksStatus(e)&&e.status==='Open').map(e=>e.id));
+ const doneStatusIds=$derived(chosen.filter(e=>tracksStatus(e)&&e.status==='Done').map(e=>e.id));
  const selectionHasText=$derived(chosen.some(entry=>entry.text.trim()));
  const selectionHasImages=$derived(chosen.some(entry=>entry.attachments.length));
  const selectionCopyMode=$derived(defaultCopyMode(selectionHasText,selectionHasImages));
- const suggestions=$derived(text.match(/#([\p{L}\p{N}_-]*)$/u)?.[1]);
+ const suggestions=$derived(text.match(/#([\p{L}\p{M}\p{N}_-]*)$/u)?.[1]);
  let editBaseline=$state('');
  const editFingerprint=$derived(editorSignature({text,type,tagInput,attachments,references,projectId:draftProjectId}));
  const dirty=$derived(editing?editFingerprint!==editBaseline:!!(text||attachments.length||references.length||tagInput));
@@ -286,13 +318,13 @@
  function chooseTheme(value:'light'|'dark'|'system'){theme=value;if(localStorage.getItem('devpad-theme')!==value)localStorage.setItem('devpad-theme',value);}
  async function refresh(){
   const previousProject=entries.find(e=>e.id===editing)?.projectId;
-  const data=await invoke<{projects:Project[];entries:Entry[];dataDir:string}>('load');
+  const data=await invoke<{projects:Project[];entries:Entry[];noteTypes?:CustomType[];dataDir:string}>('load');
   const moved=data.entries.find(e=>e.id===editing);
   if(previousProject&&moved&&moved.projectId!==previousProject&&draftProjectId===previousProject){
    draftProjectId=moved.projectId;
    const baseline=JSON.parse(editBaseline);baseline.projectId=draftProjectId;editBaseline=JSON.stringify(baseline);
   }
-  projects=data.projects;entries=data.entries;dataDir=data.dataDir;
+  projects=data.projects;customTypes=data.noteTypes??[];entries=data.entries;dataDir=data.dataDir;
   selected=selected.filter(id=>visible.some(e=>e.id===id));
  }
  async function run(action:()=>Promise<void>){error='';retryAction=null;try{await action();}catch(e){error=String(e);}}
@@ -318,12 +350,12 @@
     listen('update-install-failed',()=>updateLocked=false),
     getCurrentWindow().listen('notebook-collapse-request',()=>{if(!auxiliary)void collapseNotebook(true);}),
     listen('notebook-expanded',()=>{notebookSleeping=false;notebookActivity();}),
-    listen('tray-hide',()=>{notebookSleeping=true;if(canDraft&&dirty&&!busy)void persistDraft().catch(e=>draftError=String(e));if(panelWindow&&panel==='filters')void sendMain('filters',{filterTypes:[...filterTypes],status,tag,search});}),
+    listen('tray-hide',()=>{notebookSleeping=true;if(canDraft&&dirty&&!busy)void persistDraft().catch(e=>draftError=String(e));if(panelWindow&&panel==='filters')void sendMain('filters',{filterTypes:[...filterTypes],status,tag,hasImages,search});}),
     getCurrentWindow().listen<number>('request-exit',event=>{if(!canDraft)return;void run(async()=>{if(busy||!initialized){error=$t('正在保存或处理图片，请完成后再退出');await invoke('exit_decision',{approve:false,revision:event.payload});return;}try{await persistDraft();await invoke('exit_decision',{approve:true,revision:event.payload});}catch(e){error=String(e);await invoke('exit_decision',{approve:false,revision:event.payload});}});}),
      listen<any>('main-action',event=>{if(auxiliary)return;void run(async()=>{
       const {action,data}=event.payload;
       if(action==='project'){await refresh();await switchProject(data.id);if(data.created)await newEntry();}
-      if(action==='filters'){filterTypes=data.filterTypes;status=data.status;tag=data.tag;search=data.search;}
+      if(action==='filters'){filterTypes=data.filterTypes;status=data.status;tag=data.tag;hasImages=!!data.hasImages;search=data.search;}
       if(action==='new')await newEntry();
       if(action==='search')await openSearch();
       if(action==='draft')await openEditor({projectId:defaultProjectId,type:'Draft'});
@@ -335,7 +367,7 @@
    await refreshDrafts(true);initialized=true;ready=true;if(canDraft&&dirty)await persistDraft();
    if(windowKind==='more')await readDesktopPreferences();
   }).finally(async()=>{if(auxiliary){if(!initialized)initializationError=error||$t('窗口初始化失败');await tick();await invoke('window_ready');}});
-  void run(async()=>{if(!isTauri()){await refresh();ready=true;initialized=true;}if(isTauri()){const win=getCurrentWindow();if(!auxiliary && localStorage.getItem('devpad-main-on-top')==='true')await win.setAlwaysOnTop(true);maximized=await win.isMaximized();const resize=await win.onResized(async()=>{maximized=await win.isMaximized();});const moved=await win.onMoved(notebookActivity);const close=await win.onCloseRequested(async(event)=>{if(annotating){event.preventDefault();return;}if(panelWindow&&panel==='filters')await sendMain('filters',{filterTypes:[...filterTypes],status,tag,search});if(!auxiliary){event.preventDefault();return;}if(busy){event.preventDefault();announce('正在处理，请稍后再关闭');return;}if(dirty&&!allowClose&&editorWindow){event.preventDefault();try{await persistDraft();allowClose=true;await win.close();}catch(e){error=$t('草稿保存失败：{error}',{error:String(e)});}return;}if(dirty&&!allowClose){event.preventDefault();if(await confirmation.ask('当前文字、图片和引用尚未保存。你可以继续编辑，或放弃后关闭窗口。','放弃并关闭',editorWindow?'关闭写笔记窗口？':'关闭 DevPad？','继续编辑')){allowClose=true;await win.close();}} });if(stopped){resize();close();moved();}else cleanup.push(resize,close,moved);}}).finally(async()=>{if(isTauri()&&!auxiliary){await tick();await invoke('window_ready');}});
+  void run(async()=>{if(!isTauri()){await refresh();ready=true;initialized=true;}if(isTauri()){const win=getCurrentWindow();if(!auxiliary && localStorage.getItem('devpad-main-on-top')==='true')await win.setAlwaysOnTop(true);maximized=await win.isMaximized();const resize=await win.onResized(async()=>{maximized=await win.isMaximized();});const moved=await win.onMoved(notebookActivity);const close=await win.onCloseRequested(async(event)=>{if(annotating){event.preventDefault();return;}if(panelWindow&&panel==='filters')await sendMain('filters',{filterTypes:[...filterTypes],status,tag,hasImages,search});if(!auxiliary){event.preventDefault();return;}if(busy){event.preventDefault();announce('正在处理，请稍后再关闭');return;}if(dirty&&!allowClose&&editorWindow){event.preventDefault();try{await persistDraft();allowClose=true;await win.close();}catch(e){error=$t('草稿保存失败：{error}',{error:String(e)});}return;}if(dirty&&!allowClose){event.preventDefault();if(await confirmation.ask('当前文字、图片和引用尚未保存。你可以继续编辑，或放弃后关闭窗口。','放弃并关闭',editorWindow?'关闭写笔记窗口？':'关闭 DevPad？','继续编辑')){allowClose=true;await win.close();}} });if(stopped){resize();close();moved();}else cleanup.push(resize,close,moved);}}).finally(async()=>{if(isTauri()&&!auxiliary){await tick();await invoke('window_ready');}});
   if(!auxiliary&&isTauri()){void syncNotebook();document.addEventListener('keydown',notebookActivity);}
   return()=>{document.removeEventListener('keydown',notebookActivity);stopped=true;window.removeEventListener('scroll',clearCopyOptions,true);window.removeEventListener('resize',clearCopyOptions);window.removeEventListener('storage',storage);window.removeEventListener('devpad-templates-changed',reloadTemplates);media.removeEventListener('change',changed);cleanup.forEach(f=>f());};
  });
@@ -360,7 +392,7 @@
   if(!dialog.open)release();
  }
  function closePanel(){
-  if(panelWindow){void run(async()=>{if(panel==='filters')await sendMain('filters',{filterTypes:[...filterTypes],status,tag,search});await getCurrentWindow().close();});return;}
+  if(panelWindow){void run(async()=>{if(panel==='filters')await sendMain('filters',{filterTypes:[...filterTypes],status,tag,hasImages,search});await getCurrentWindow().close();});return;}
   modal?.close();
  }
  function closeNavigation(){
@@ -445,7 +477,7 @@
    const old=entries.find(e=>e.id===editing);
    if(editing&&!old)throw new Error($t('原记录已删除，请复制内容后新建记录'));
    const now=new Date().toISOString();
-   const entry:Entry={revision:editRevision,id:editing||crypto.randomUUID(),projectId:draftProjectId,type,text,attachments:[...attachments],tags:[...new Set([...tagsOf(text),...tagsOf(tagInput)])],status:old?.status||'Open',createdAt:old?.createdAt||now,updatedAt:now,references:type==='Draft'?[...references]:[]};
+   const entry:Entry={revision:editRevision,id:editing||crypto.randomUUID(),projectId:draftProjectId,type,text,attachments:[...attachments],tags:[...new Set([...tagsOf(text),...fieldTags(tagInput)])],status:old?.status||'Open',createdAt:old?.createdAt||now,updatedAt:now,references:[...references]};
    await draftQueue.catch(()=>{});
    if(previousDraftId)await persistDraft();
    await invoke('save_entry',{entry,consumeDraft:canDraft});
@@ -487,7 +519,7 @@
   if(editing!==entry.id||!dirty)loadEntry(entry);
   await showEditor();
  }
- function toggleSelectionOff(){dismissMenus();selecting=false;selected=[];anchor='';}
+ function toggleSelectionOff(){collapseFeedback='';dismissMenus();selecting=false;selected=[];anchor='';}
  function selectTo(entry:Entry){
   const previous=visible.findIndex(note=>note.id===anchor);
   const start=previous<0?0:previous,end=visible.findIndex(note=>note.id===entry.id);
@@ -550,7 +582,7 @@
     if(!draftProjectId)return;
     toggleSelectionOff();expanded=true;await tick();
    if(content.attachments.length){attachments=[...attachments,...content.attachments];announce('已粘贴 {count} 张图片',{count:content.attachments.length});}
-   else {editor.setRangeText(content.text,start,end,'end');text=editor.value;announce('已粘贴文字');}
+   if(content.text){editor.setRangeText(content.text,start,end,'end');text=editor.value;if(!content.attachments.length)announce('已粘贴文字');}
   });
   busy=false;await tick();if(expanded)editor?.focus();
  }
@@ -607,13 +639,13 @@
   if(command&&lower==='c'&&!input&&selecting&&selected.length&&!window.getSelection()?.toString()){
    event.preventDefault();void copyOutput(selected,selectionCopyMode);
   }
-  if(event.altKey&&/^[1-6]$/.test(event.key)&&!input){event.preventDefault();type=types[Number(event.key)-1];editorDetails=true;void showEditor();}
+  if(event.altKey&&/^[1-6]$/.test(event.key)&&!input){event.preventDefault();type=shortcutTypes[Number(event.key)-1];editorDetails=true;void showEditor();}
  }
  async function showImage(a:Attachment,trigger:HTMLButtonElement){
   trigger.focus({preventScroll:true});preview=a;await tick();imageModal.showModal();
  }
  function moveRef(index:number,delta:number){const next=[...references];[next[index],next[index+delta]]=[next[index+delta],next[index]];references=next;}
- function clearFilters(){filterTypes=[];status='';tag='';}
+ function clearFilters(){filterTypes=[];status='';tag='';hasImages=false;}
  function day(value:string){
   const date=new Date(value),today=new Date(),yesterday=new Date();
   yesterday.setDate(today.getDate()-1);
@@ -628,6 +660,16 @@
 </script>
 
 <svelte:window onresize={()=>{if(!suspended){viewportWidth=innerWidth;viewportHeight=innerHeight;}}} onkeydown={key} onpaste={paste} ondragover={dragOver} ondragenter={dragEnter} ondragleave={dragLeave} ondrop={drop}/>
+{#snippet filterFields()}
+ <div class="filter-fields">
+  <label>{$t('类型')}<SelectField label={$t('类型 · 可多选')} multiple={filterTypes} emptyLabel={$t('所有类型')} onchange={toggleTypeFilter}
+   options={[{value:'',label:$t('所有类型')},...typeOptions]}/></label>
+  <label>{$t('状态')}<SelectField label={$t('状态筛选')} bind:value={status} options={[{value:'',label:$t('所有状态')},...['Open','Done'].map(s=>({value:s,label:labels[s]}))]}/></label>
+  <label>{$t('标签')}<SelectField label={$t('标签筛选')} bind:value={tag} options={[{value:'',label:$t('所有标签')},...tags.map(t=>({value:t,label:'#'+t}))]}/></label>
+  <label class="images-filter">{$t('有图片')}<input type="checkbox" bind:checked={hasImages}/></label>
+ </div>
+ {#if filterCount && !panelWindow}<button class="blue-text clear-filter" onclick={clearFilters}>{$t('清除筛选')}</button>{/if}
+{/snippet}
 {#snippet feedback()}
  {#if error||notice}
   <div class="feedback journal-feedback" class:error role={error?'alert':'status'}>
@@ -641,29 +683,24 @@
  {#if auxiliary}<WindowBar title={editorWindow?$t('写记录 · {project}',{project:displayProject(draftProject,'DevPad')}):panelTitles[panel||'more']}/>{/if}
  {#if initializationError}<div class="initialization-error" role="alert">{initializationError}<button onclick={()=>location.reload()}>{$t('重试')}</button><button onclick={()=>windowAction('close')}>{$t('关闭')}</button></div>{/if}
  {#if !auxiliary}
- <header class="titlebar journal-titlebar">
-  <button class="project-picker" bind:this={projectTrigger} aria-label={$t('切换项目')} aria-expanded={navigationOpen} aria-controls="project-navigation" title={$t('项目列表')} onclick={()=>navigationOpen?closeNavigation():openPanel('filters')}><Icon name="menu" size={18}/><span>{displayProject(project,$t('全部记录'))}</span></button>
+ <header class="titlebar journal-titlebar" class:with-navigation={wideOrganizer&&navigationOpen}>
+  <button id="project-picker" class="project-picker" bind:this={projectTrigger} aria-label={$t('切换项目')} aria-expanded={navigationOpen} aria-controls="project-navigation" data-tip={$t('项目列表')} onclick={()=>navigationOpen?closeNavigation():openPanel('filters')}><Icon name="menu" size={18}/></button>
+  <label class="current-project" for="project-picker">{displayProject(project,$t('全部记录'))}</label>
   <div class="drag-space" role="presentation" onmousedown={(e)=>{if(e.button===0&&e.detail===1)void windowAction('drag');}} ondblclick={()=>windowAction('maximize')}></div>
-  <button bind:this={searchTrigger} class="icon-button" aria-label={$t('搜索笔记')} aria-expanded={searching} title={$t('搜索 · {key} F',{key:modifier})} onclick={()=>searching?closeSearch():openSearch()}><Icon name="search"/></button>
-  <button class="journal-select" aria-pressed={selecting} aria-label={selecting?$t('退出多选'):$t('多选')} title={selecting?$t('退出多选'):$t('多选')} onclick={toggleSelection}><Icon name="check" size={16}/><span>{$t('多选')}</span></button>
-  <button data-notebook-collapse class="icon-button" aria-label={$t('收起为悬浮笔记本')} title={$t('收起为悬浮笔记本')} onclick={()=>collapseNotebook()}><Icon name="notebook" size={18}/></button>
-  <button class="icon-button settings-trigger" aria-label={$t('更多')} aria-haspopup="dialog" aria-expanded={panel==='more'} title={$t('设置与工具')} onclick={()=>openPanel('more')}><Icon name="more"/></button>
- <div class="window-controls"><button aria-label={$t('最小化')} title={$t('最小化')} onclick={()=>windowAction('minimize')}><Icon name="minimize" size={15}/></button><button aria-label={maximized?$t('还原窗口'):$t('最大化')} title={maximized?$t('还原窗口'):$t('最大化')} onclick={()=>windowAction('maximize')}><Icon name={maximized?'restore':'maximize'} size={13}/></button><button class="window-close" aria-label={$t('关闭窗口')} title={$t('关闭')} onclick={()=>windowAction('close')}><Icon name="close" size={17}/></button></div>
+  <button bind:this={searchTrigger} class="icon-button" aria-label={$t('搜索笔记')} aria-expanded={searching} data-tip={$t('搜索 · {key} F',{key:modifier})} onclick={()=>searching?closeSearch():openSearch()}><Icon name="search"/></button>
+  <button class="journal-select" aria-pressed={selecting} aria-label={selecting?$t('退出多选'):$t('多选')} data-tip={selecting?$t('退出多选'):$t('多选')} onclick={toggleSelection}><Icon name="check" size={16}/><span class="selection-label" data-inactive={$t('多选')} data-active={$t('退出多选')}>{selecting?$t('退出多选'):$t('多选')}</span></button>
+  {#if collapseFeedback}<span class="collapse-feedback" role="status">{collapseFeedback}<button aria-label={$t('关闭提示')} onclick={()=>collapseFeedback=''}><Icon name="close" size={13}/></button></span>{/if}
+  <button data-notebook-collapse class="icon-button" aria-label={$t('收起为悬浮笔记本')} data-tip={$t('收起为悬浮笔记本')} onclick={()=>collapseNotebook()}><Icon name="notebook" size={18}/></button>
+  <button class="icon-button settings-trigger" aria-label={$t('更多')} aria-haspopup="dialog" aria-expanded={panel==='more'} data-tip={$t('设置与工具')} onclick={()=>openPanel('more')}><Icon name="more"/></button>
+ <div class="window-controls"><button aria-label={$t('最小化')} data-tip={$t('最小化')} onclick={()=>windowAction('minimize')}><Icon name="minimize" size={15}/></button><button aria-label={maximized?$t('还原窗口'):$t('最大化')} data-tip={maximized?$t('还原窗口'):$t('最大化')} onclick={()=>windowAction('maximize')}><Icon name={maximized?'restore':'maximize'} size={13}/></button><button class="window-close" aria-label={$t('关闭窗口')} data-tip={$t('关闭')} onclick={()=>windowAction('close')}><Icon name="close" size={17}/></button></div>
  </header>
  {/if}
  <div class="journal-layout" class:with-navigation={!auxiliary&&wideOrganizer&&navigationOpen}>
   {#if !auxiliary}
    <ProjectNavigation open={navigationOpen && (wideOrganizer || !(panel || preview || annotating))} docked={wideOrganizer}
-    {projects} {entries} current={projectId} matched={visible.length} filterCount={filterTypes.length+Number(!!status)+Number(!!tag)}
+    {projects} {entries} current={projectId} matched={visible.length} {filterCount}
     bind:creating={creatingProject} onselect={switchProject} oncreate={createNavigationProject} onclose={closeNavigation} onclosed={navigationClosed}>
-    {#snippet filters()}
-     <div class="menu-section"><h3>{$t('类型')}</h3><div class="filter-types">{#each [...types,'Draft'] as t}<button class:active={filterTypes.includes(t)} aria-pressed={filterTypes.includes(t)} onclick={()=>filterTypes=filterTypes.includes(t)?filterTypes.filter(v=>v!==t):[...filterTypes,t]}>{labels[t]}</button>{/each}</div></div>
-     <div class="filter-fields">
-      <label>{$t('状态')}<SelectField label={$t('状态筛选')} bind:value={status} options={[{value:'',label:$t('所有状态')},...['Open','Done'].map(s=>({value:s,label:labels[s]}))]}/></label>
-      <label>{$t('标签')}<SelectField label={$t('标签筛选')} bind:value={tag} options={[{value:'',label:$t('所有标签')},...tags.map(t=>({value:t,label:'#'+t}))]}/></label>
-     </div>
-     {#if filterTypes.length||status||tag}<button class="blue-text" onclick={clearFilters}>{$t('清除筛选')}</button>{/if}
-    {/snippet}
+    {#snippet filters()}{@render filterFields()}{/snippet}
    </ProjectNavigation>
   {/if}
   <div class="journal-workspace">
@@ -672,15 +709,17 @@
   {#if searching}
    <div class="search-row content-width" transition:slide={{duration:motion()}}>
     <Icon name="search" size={18}/>
-    <input type="search" aria-label={$t('搜索记录')} bind:this={searchInput} value={search} oninput={(e)=>changeSearch(e.currentTarget.value)} placeholder={$t('搜索正文、项目或标签')}/>
+    <span class="sr-only" id="search-scope">{$t('搜索正文、标签、项目或图片文件名')}</span>
+    <input type="search" aria-label={$t('搜索记录')} bind:this={searchInput} value={search} oncompositionstart={()=>composingSearch=true} oncompositionend={e=>{composingSearch=false;void changeSearch(e.currentTarget.value);}} oninput={e=>{if(!composingSearch&&!(e instanceof InputEvent&&e.isComposing))void changeSearch(e.currentTarget.value);}} aria-describedby="search-scope" placeholder={$t('在「{project}」中搜索',{project:displayProject(project,$t('全部记录'))})}/>
     <button aria-label={$t('关闭搜索')} onclick={closeSearch}><Icon name="close" size={18}/></button>
    </div>
   {/if}
-  {#if filterTypes.length||status||tag}
-   <div class="filter-summary content-width" aria-label={$t('当前筛选')}>
+  {#if filterCount}
+   <div class="filter-summary content-width" transition:slide={{duration:motion()}} aria-label={$t('当前筛选')}>
     {#each filterTypes as filterType}<button onclick={()=>filterTypes=filterTypes.filter(v=>v!==filterType)} aria-label={$t('清除类型 {type}',{type:labels[filterType]})}>{labels[filterType]}<Icon name="close" size={12}/></button>{/each}
     {#if status}<button onclick={()=>status=''}>{labels[status]}<Icon name="close" size={12}/></button>{/if}
     {#if tag}<button onclick={()=>tag=''}>#{tag}<Icon name="close" size={12}/></button>{/if}
+    {#if hasImages}<button onclick={()=>hasImages=false}>{$t('有图片')}<Icon name="close" size={12}/></button>{/if}
     <button onclick={clearFilters}>{$t('清除筛选')}</button>
    </div>
   {/if}
@@ -691,12 +730,12 @@
     {:else if !ready}
      <div class="empty-state"><p>{$t('正在读取本地记录…')}</p></div>
     {:else}
-     {#if !search&&!filterTypes.length&&!status&&!tag&&(!visible.length||day(visible[0].createdAt)!==$t('今天'))}
+     {#if !search&&!filterCount&&(!visible.length||day(visible[0].createdAt)!==$t('今天'))}
       <h2 class="day-label">{$t('今天')}</h2><p class="journal-empty">{$t('今天还没有记录。')}</p>
      {/if}
      {#each visible as e,i (e.id)}
       {#if i===0||day(visible[i-1].createdAt)!==day(e.createdAt)}<h2 class="day-label">{day(e.createdAt)}</h2>{/if}
-      <article class:selected={selected.includes(e.id)} onpointerdown={(event)=>{if((event.ctrlKey||event.metaKey||event.shiftKey)&&!(event.target as HTMLElement).closest('button'))select(e,event);}}
+      <article class:selected={selected.includes(e.id)} class:range-anchor={selecting&&anchor===e.id} onpointerdown={(event)=>{if((event.ctrlKey||event.metaKey||event.shiftKey)&&!(event.target as HTMLElement).closest('button'))select(e,event);}}
        oncontextmenu={(event)=>{event.preventDefault();const trigger=event.currentTarget.querySelector<HTMLButtonElement>('.note-menu');if(trigger)void entryMenu(e,trigger);}}>
        {#if selecting}
         <button class="selection-check" aria-label={$t('选择记录 {note}',{note:e.text.slice(0,30)||$t('图片记录')})} aria-pressed={selected.includes(e.id)} onclick={(event)=>select(e,event)}>{#if selected.includes(e.id)}<Icon name="check" size={15}/>{/if}</button>
@@ -706,7 +745,7 @@
          <div class="note-meta">
           <time datetime={e.createdAt}>{new Date(e.createdAt).toLocaleTimeString($locale,{hour:'2-digit',minute:'2-digit',hour12:$locale==='en'})}</time>
           {#if !projectId}<span>{displayProject(projects.find(p=>p.id===e.projectId))}</span>{/if}
-          {#if e.type!=='Note'}<span>{labels[e.type]}</span>{#if e.status==='Done'}<span>{labels[e.status]}</span>{/if}{/if}
+          {#if e.type!=='Note'}<span>{labels[e.type]??e.type}</span>{#if e.status==='Done'}<span>{labels[e.status]}</span>{/if}{/if}
          </div>
          {#if selecting}
           <button class="range-action" onclick={()=>selectTo(e)}>{$t('选择到这里')}</button>
@@ -715,7 +754,7 @@
            <CopyControl hasText={!!e.text.trim()} hasImages={!!e.attachments.length} disabled={busy}
             copied={copied?.id===e.id} open={copyOptionsFor===e.id} onopen={open=>offerCopies(e.id,open)}
             oncopy={mode=>copyOutput([e.id],mode)}/>
-           <button class="icon-button note-menu" aria-label={$t('记录操作 {note}',{note:e.text.slice(0,30)||$t('图片记录')})} aria-expanded={recordMenuOpen&&activeEntry?.id===e.id} aria-controls="record-actions" aria-haspopup="menu" popovertarget="record-actions" title={$t('记录操作')} onclick={(event)=>{event.preventDefault();void entryMenu(e,event.currentTarget);}}><Icon name="more" size={16}/></button>
+           <button class="icon-button note-menu" aria-label={$t('记录操作 {note}',{note:e.text.slice(0,30)||$t('图片记录')})} aria-expanded={recordMenuOpen&&activeEntry?.id===e.id} aria-controls="record-actions" aria-haspopup="menu" popovertarget="record-actions" data-tip={$t('记录操作')} onclick={(event)=>{event.preventDefault();void entryMenu(e,event.currentTarget);}}><Icon name="more" size={16}/></button>
           </div>
          {/if}
         </div>
@@ -725,7 +764,7 @@
        </div>
       </article>
      {:else}
-      {#if search||filterTypes.length||status||tag}<p class="journal-empty">{$t('没有匹配的记录。')}</p>{/if}
+      {#if search||filterCount}<p class="journal-empty">{$t('没有匹配的记录。')}</p>{/if}
      {/each}
     {/if}
    </div>
@@ -737,21 +776,22 @@
    {#if selecting}
     <section class="selection-toolbar journal-selection" aria-label={$t('批量操作')}>
      <strong aria-live="polite">{$t('已选 {count} 条',{count:selected.length})}</strong>
-     <button disabled={busy||!selected.length} onclick={()=>copyOutput(selected,selectionCopyMode)}>{selectionCopyMode==='bundle'?$t('复制图文'):selectionCopyMode==='images'?$t('复制图片'):$t('复制正文')}</button>
+     <button disabled={busy||!selected.length} onclick={()=>copyOutput(selected,selectionCopyMode)}>{$t('复制')}</button>
      <button aria-expanded={batchMenuOpen} aria-controls="batch-actions" aria-haspopup="menu" popovertarget="batch-actions" onclick={e=>{e.preventDefault();void selectionMenu.show(e.currentTarget);}}>{$t('更多')}</button>
      <ActionPopover id="batch-actions" label={$t('批量操作选项')} bind:this={selectionMenu} bind:open={batchMenuOpen}>
        <button role="menuitem" tabindex="-1" onclick={()=>{selectAll();dismissMenus();}}>{$t('全选当前结果')}</button>
        {#if selectionHasImages}
         {#if selectionHasText}
-         <button role="menuitem" tabindex="-1" disabled={busy} onclick={()=>copyOutput(selected,'raw')}>{$t('复制正文')}</button>
-         <button role="menuitem" tabindex="-1" disabled={busy} onclick={()=>copyOutput(selected,'images')}>{$t('复制图片')}</button>
+         <button role="menuitem" tabindex="-1" disabled={busy} onclick={()=>copyOutput(selected,'raw')}>{$t('仅复制正文')}</button>
+         <button role="menuitem" tabindex="-1" disabled={busy} onclick={()=>copyOutput(selected,'images')}>{$t('仅复制图片')}</button>
         {:else}<button role="menuitem" tabindex="-1" disabled={busy} onclick={()=>copyOutput(selected,'bundle')}>{$t('复制图文')}</button>{/if}
        {/if}
        <hr/>
        <button role="menuitem" tabindex="-1" disabled={busy||!selected.length} onclick={()=>openPanel('delivery')}>{$t('导出…')}</button>
        <button role="menuitem" tabindex="-1" disabled={busy||!selected.length} onclick={()=>openMove(selected)}>{$t('移动项目')}</button>
        <button role="menuitem" tabindex="-1" disabled={busy||!selected.length} onclick={()=>{dismissMenus();void prepareTask(selected);}}>{$t('发布任务')}</button>
-       {#if chosen.some(e=>e.type!=='Note')}<button role="menuitem" tabindex="-1" onclick={()=>batch('Done')}>{$t('标记完成')}</button><button role="menuitem" tabindex="-1" onclick={()=>batch('Open')}>{$t('恢复待处理')}</button>{/if}
+       {#if openStatusIds.length}<button role="menuitem" tabindex="-1" onclick={()=>batch('Done',openStatusIds)}>{$t('标记完成')}</button>{/if}
+       {#if doneStatusIds.length}<button role="menuitem" tabindex="-1" onclick={()=>batch('Open',doneStatusIds)}>{$t('恢复待处理')}</button>{/if}
        <hr/>
        <button role="menuitem" tabindex="-1" class="danger-text" disabled={busy||!selected.length} onclick={()=>{dismissMenus();void batch('Delete');}}>{$t('删除')}</button>
      </ActionPopover>
@@ -768,7 +808,7 @@
      <div class="editor-scroll" inert={busy||updateLocked}>
       <label class="sr-only" for="entry-text">{$t('记录正文')}</label>
       <textarea id="entry-text" dir="auto" bind:this={editor} bind:value={text} placeholder={$t('记一句进展，或直接粘贴截图…')} rows="2" disabled={busy}></textarea>
-      {#if suggestions!==undefined}<div class="tag-suggestions">{#each tags.filter(t=>t.startsWith(suggestions)).slice(0,6) as t}<button onclick={()=>{text=text.replace(/#[\p{L}\p{N}_-]*$/u,'#'+t);editor.focus();}}>#{t}</button>{/each}</div>{/if}
+      {#if suggestions!==undefined}<div class="tag-suggestions">{#each allTags.filter(t=>t.startsWith(suggestions)).slice(0,6) as t}<button onclick={()=>{text=text.replace(/#[\p{L}\p{M}\p{N}_-]*$/u,'#'+t);editor.focus();}}>#{t}</button>{/each}</div>{/if}
       {#if attachments.length}
        <div class="editor-images">{#each attachments as a}
         <div class="attachment"><button class="image-button" onclick={event=>showImage(a,event.currentTarget)}><img src={convertFileSrc(a.path)} alt={a.name}/></button><button class="annotate-image" aria-label={$t('标注 {filename}',{filename:a.name})} onclick={()=>annotating=a}>{$t('标注')}</button><button class="remove-image" aria-label={$t('移除 {filename}',{filename:a.name})} onclick={()=>attachments=attachments.filter(item=>item.id!==a.id)}><Icon name="close" size={16}/></button></div>
@@ -777,12 +817,11 @@
       {#if editorDetails}
        <div class="editor-fields" transition:slide={{duration:motion()}}>
         <label>{$t('所属项目')}<SelectField label={$t('所属项目')} disabled={busy} bind:value={draftProjectId} options={projects.map(p=>({value:p.id,label:displayProject(p)}))}/></label>
-        <label>{$t('类型')}<SelectField label={$t('笔记类型')} disabled={busy} bind:value={type} options={[...types,'Draft'].map(t=>({value:t,label:labels[t]}))}/></label>
-        <label class="tags-field">{$t('标签')}<input aria-label={$t('笔记标签')} disabled={busy} bind:value={tagInput} list="existing-tags" placeholder={$t('#标签')}/></label>
-        <datalist id="existing-tags">{#each tags as t}<option value={'#'+t}></option>{/each}</datalist>
+        <label>{$t('类型')}<SelectField label={$t('笔记类型')} disabled={busy} bind:value={type} options={typeOptions} oncreate={addType}/></label>
+        <TagField options={allTags} disabled={busy} bind:value={tagInput}/>
         {#if dirty||editing}<button disabled={busy} onclick={discardEditor}>{$t('丢弃草稿')}</button>{/if}
        </div>
-       {#if type==='Draft'}
+       {#if type==='Draft'||references.length}
         <div class="draft-refs"><span>{$t('引用已有笔记')}</span><SelectField label={$t('引用已有笔记')} resetAfterPick value="" onchange={v=>{if(v)references=[...references,v];}} options={[{value:'',label:$t('选择记录…')},...entries.filter(e=>e.projectId===draftProjectId&&e.id!==editing&&e.type!=='Draft'&&!references.includes(e.id)).map(e=>({value:e.id,label:e.text.slice(0,60)||$t('图片记录')}))]}/>
          {#each references as id,i}<div class="reference"><span>{entries.find(e=>e.id===id)?.text.slice(0,70)||$t('记录已删除')}</span><button disabled={i===0} onclick={()=>moveRef(i,-1)} aria-label={$t('上移引用')}><Icon name="up" size={16}/></button><button disabled={i===references.length-1} onclick={()=>moveRef(i,1)} aria-label={$t('下移引用')}><Icon name="down" size={16}/></button><button onclick={()=>references=references.filter(x=>x!==id)} aria-label={$t('移除引用')}><Icon name="close" size={16}/></button></div>{/each}
         </div>
@@ -790,13 +829,13 @@
       {/if}
      </div>
      <div class="composer-footer journal-editor-actions">
-      <button disabled={busy||updateLocked} aria-label={$t('添加图片')} title={$t('添加图片')} onclick={()=>fileInput.click()}><Icon name="image" size={18}/></button>
-      <button disabled={busy} aria-expanded={editorDetails} title={$t('项目、标签与类型')} onclick={()=>editorDetails=!editorDetails}>{$t('整理')}</button>
-      {#if !editorWindow&&dirty&&draftProject&&projectId&&draftProject.id!==projectId}<span class="draft-destination" title={$t('草稿将保存到 {project}',{project:displayProject(draftProject)})}>{$t('存到 {project}',{project:displayProject(draftProject)})}</span>{/if}
+      <button disabled={busy||updateLocked} aria-label={$t('添加图片')} data-tip={$t('添加图片')} onclick={()=>fileInput.click()}><Icon name="image" size={18}/></button>
+      <button disabled={busy} aria-expanded={editorDetails} data-tip={$t('项目、标签与类型')} onclick={()=>editorDetails=!editorDetails}>{$t('整理')}</button>
+      {#if !editorWindow&&dirty&&draftProject&&projectId&&draftProject.id!==projectId}<span class="draft-destination" data-tip={$t('草稿将保存到 {project}',{project:displayProject(draftProject)})}>{$t('存到 {project}',{project:displayProject(draftProject)})}</span>{/if}
       <span class="spacer"></span>
       {#if dirty&&canDraft}<span class="draft-state" role="status">{draftStored?$t('草稿已保存'):$t('保存草稿中…')}</span>{/if}
       {#if !editorWindow}<button disabled={busy} onclick={pauseEditor}>{$t('收起')}</button>{/if}
-      <button class="blue-button" disabled={busy||updateLocked||(!text.trim()&&!attachments.length)} aria-label={$t('保存')} title={$t('保存 · {key} Enter',{key:modifier})} onclick={save}>{busy?$t('处理中…'):$t('保存')}</button>
+      <button class="blue-button" disabled={busy||updateLocked||(!text.trim()&&!attachments.length)} aria-label={$t('保存')} data-tip={$t('保存 · {key} Enter',{key:modifier})} onclick={save}>{busy?$t('处理中…'):$t('保存')}</button>
      </div>
     </section>
    {:else if !selecting}
@@ -815,8 +854,8 @@
  <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>edit(entry)}>{$t('编辑记录')}</button>
  {#if entry.attachments.length}
   {#if entry.text.trim()}
-   <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'raw')}>{$t('复制正文')}</button>
-   <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'images')}>{$t('复制图片')}</button>
+   <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'raw')}>{$t('仅复制正文')}</button>
+   <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'images')}>{$t('仅复制图片')}</button>
   {:else}
    <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>copyOutput([entry.id],'bundle')}>{$t('复制图文')}</button>
   {/if}
@@ -825,7 +864,7 @@
  <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>openMove([entry.id])}>{$t('移动到项目…')}</button>
  <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>run(()=>viewDelivery(makeSession([entry.id])))}>{$t('导出…')}</button>
  <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>prepareTask([entry.id])}>{$t('发布任务…')}</button>
- {#if entry.type!=='Note'}<button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>batch(entry.status==='Done'?'Open':'Done',[entry.id])}>{entry.status==='Done'?$t('恢复待处理'):$t('标记完成')}</button>{/if}
+ {#if tracksStatus(entry)}<button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row" onclick={()=>batch(entry.status==='Done'?'Open':'Done',[entry.id])}>{entry.status==='Done'?$t('恢复待处理'):$t('标记完成')}</button>{/if}
  <hr/>
  <button role={panelWindow ? undefined : 'menuitem'} tabindex={panelWindow ? undefined : -1} class="menu-row danger-text" onclick={()=>batch('Delete',[entry.id])}>{$t('删除记录')}</button>
 {/snippet}
@@ -839,7 +878,7 @@
  <div class="sheet-body">
   {#if panel==='projects'||panel==='filters'}
   <div class="menu-section"><h3>{$t('项目')}</h3><button class="menu-row" aria-pressed={!projectId} onclick={()=>switchProject('')}>{$t('全部记录')}</button>{#each projects as p}<button class="menu-row" aria-pressed={p.id===projectId} onclick={()=>switchProject(p.id)}><span>{displayProject(p)}</span>{#if p.id===projectId}<Icon name="check" size={18}/>{/if}</button>{/each}<button class="menu-row blue-text" onclick={()=>openPanel('new-project')}><span>{$t('新建项目')}</span><Icon name="plus" size={18}/></button></div>
-   {#if panel==='filters'}<div class="menu-section"><h3>{$t('类型 · 可多选')}</h3><div class="filter-types">{#each [...types,'Draft'] as t}<button class:active={filterTypes.includes(t)} aria-pressed={filterTypes.includes(t)} onclick={()=>filterTypes=filterTypes.includes(t)?filterTypes.filter(v=>v!==t):[...filterTypes,t]}>{labels[t]}{#if filterTypes.includes(t)}<Icon name="check" size={14}/>{/if}</button>{/each}</div></div><div class="menu-section filter-fields"><label>{$t('状态')}<SelectField label={$t('状态筛选')} bind:value={status} options={[{value:'',label:$t('所有状态')},...['Open','Done'].map(s=>({value:s,label:labels[s]}))]}/></label><label>{$t('标签')}<SelectField label={$t('标签筛选')} bind:value={tag} options={[{value:'',label:$t('所有标签')},...tags.map(t=>({value:t,label:'#'+t}))]}/></label></div><div class="sheet-actions"><button onclick={clearFilters}>{$t('清除筛选')}</button><button class="blue-button" onclick={closePanel}>{$t('查看 {count} 条笔记',{count:visible.length})}</button></div>{/if}
+   {#if panel==='filters'}{@render filterFields()}<div class="sheet-actions"><button onclick={clearFilters}>{$t('清除筛选')}</button><button class="blue-button" onclick={closePanel}>{$t('查看 {count} 条笔记',{count:visible.length})}</button></div>{/if}
   {:else if panel==='new-project'}<form onsubmit={(e)=>{e.preventDefault();void newProject();}}><label for="project-name">{$t('项目名称')}</label><input id="project-name" bind:value={projectName} placeholder={$t('例如：订单系统')} required maxlength="60"/><div class="sheet-actions"><button type="button" onclick={()=>openPanel('projects')}>{$t('返回')}</button><button class="blue-button" disabled={!projectName.trim()}>{$t('创建项目')}</button></div></form>
   {:else if panel==='move'}<form onsubmit={(event)=>{event.preventDefault();void moveNotes();}}><p class="secondary">{$t('将 {count} 条笔记移动到其他项目，内容、图片与引用保留。',{count:moveIds.length})}</p><span class="move-project-label">{$t('目标项目')}</span><SelectField label={$t('移动到项目')} disabled={busy} bind:value={moveTarget} options={moveProjects.map(p=>({value:p.id,label:displayProject(p)}))}/>{#if !moveProjects.length}<p class="secondary">{$t('请先创建另一个项目。')}</p>{/if}<div class="sheet-actions"><button type="button" disabled={busy} onclick={closePanel}>{$t('取消')}</button><button class="blue-button" disabled={busy||!moveTarget}>{busy?$t('移动中…'):$t('移动')}</button></div></form>
   {:else if panel==='windows'}{#each openWindows as w}<button class="menu-row" onclick={()=>run(async()=>{await invoke('focus_editor',{label:w.label});closePanel();})}>{w.project} · {w.summary||$t('新笔记')}{w.dirty?$t(' · 未保存'):''}</button>{:else}<p class="secondary">{$t('没有打开的笔记窗口')}</p>{/each}
