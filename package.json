@@ -11,7 +11,7 @@
     "locales:review": "node scripts/check-locales.mjs --review",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
-    "test": "npm run check:locales && node --experimental-strip-types --test src/core.test.ts src/export.test.ts tests/locales.test.mjs",
+    "test": "npm run check:locales && node --experimental-strip-types --test src/core.test.ts src/export.test.ts tests/locales.test.mjs tests/release-version.test.mjs",
     "test:native": "node tests/batch-78.cjs",
     "test:ui:headless": "node tests/ui-refinement-headless.cjs && node tests/notebook-morph-headless.cjs"
   },
