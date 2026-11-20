@@ -4,6 +4,8 @@
  import {invoke,isTauri} from '@tauri-apps/api/core';
  import {listen} from '@tauri-apps/api/event';
  import SelectField from './SelectField.svelte';
+ import Disclosure from './Disclosure.svelte';
+ import Icon from './Icon.svelte';
  let info=$state({version:'',channel:'develop',platform:'',repository:'PENG1028/devpad'});
  let pending=$state<{version:string;notes?:string}|null>(null),busy=$state(false),message=$state(''),error=$state('');
  let downloaded=$state(0),total=$state(0);
@@ -13,14 +15,20 @@
  async function install(){if(!pending||busy)return;busy=true;error='';message='正在保存草稿并准备更新…';try{await invoke('install_update');message='更新已安装，正在重启…';}catch(e){error=String(e);message='';}finally{busy=false;}}
 </script>
 <section class="update-panel" aria-label={$t('应用更新')}>
- <h3>{$t('版本与更新')}</h3>
- <p>DevPad {$t(info.version)} <span class="secondary">{info.platform}</span></p>
- <label>{$t('更新通道')}<SelectField label={$t('更新通道')} disabled={busy} value={info.channel} onchange={channel} options={[{value:'develop',label:$t('开发版 · 日常测试')},{value:'stable',label:$t('稳定版')}]}/></label>
+ <div class="version-summary"><Icon name="notebook" size={24}/><div><strong>DevPad</strong><p dir="ltr">{[info.version&&$t(info.version),({windows:'Windows',macos:'macOS',linux:'Linux'} as Record<string,string>)[info.platform]||info.platform].filter(Boolean).join(' · ')}</p></div></div>
+ <div class="detail-row"><span>{$t('更新通道')}</span><SelectField label={$t('更新通道')} disabled={busy} value={info.channel} onchange={channel} options={[{value:'develop',label:$t('开发版 · 日常测试')},{value:'stable',label:$t('稳定版')}]}/></div>
  <p class="secondary">{$t('更新沿用安装位置、快捷方式和本地笔记。安装前保存草稿并备份数据库，完成后重新打开。')}</p>
  <div class="update-actions"><button class="blue-button" disabled={busy||!isTauri()} onclick={()=>pending?install():check(true)}>{busy?$t('正在更新…'):pending?$t('更新到 {version}', { version: pending.version }):$t('检查并更新')}</button><button disabled={busy||!isTauri()} onclick={()=>check()}>{$t('仅检查')}</button></div>
  {#if message}<p role="status">{$t(message, pending ? { version: pending.version } : undefined)}</p>{/if}
  {#if total}<progress value={downloaded} max={total} aria-label={$t('更新下载进度')}></progress><p class="secondary">{(downloaded/1024/1024).toFixed(1)} / {(total/1024/1024).toFixed(1)} MB</p>{/if}
  {#if error}<p class="update-error" role="alert">{error}</p>{/if}
- {#if pending?.notes}<details><summary>{$t('更新内容')}</summary><pre>{pending.notes}</pre></details>{/if}
+ {#if pending?.notes}<Disclosure label={$t('更新内容')}><pre>{pending.notes}</pre></Disclosure>{/if}
 </section>
-<style>.update-panel label{display:flex;align-items:center;gap:12px}.update-actions{display:flex;gap:8px;flex-wrap:wrap}.update-panel p{font-size:13px;line-height:1.6}.update-error{color:var(--danger,#e66666)}progress{width:100%}pre{white-space:pre-wrap;font:inherit;font-size:12px}</style>
+<style>
+ .version-summary{display:flex;align-items:center;gap:14px;padding-block:4px 18px;border-bottom:1px solid var(--line)}
+ .version-summary :global(svg){color:var(--blue)}.version-summary strong{font-size:17px;font-weight:500}
+ .version-summary p{font-variant-numeric:tabular-nums}.detail-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:16px}
+ .update-actions{display:flex;gap:8px;flex-wrap:wrap;margin-block:14px}.update-error{color:var(--danger)}progress{width:100%}pre{white-space:pre-wrap;font:inherit}
+ .update-actions button{border:1px solid var(--line);min-height:34px;font-weight:400}
+ .update-actions .blue-button{background:var(--blue);border-color:transparent;color:var(--bg)}
+</style>

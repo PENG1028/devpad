@@ -1,5 +1,5 @@
-export function placePopover(surface: HTMLElement, anchor: HTMLElement, alignEnd = false) {
- const rect = anchor.getBoundingClientRect();
+export function placePopover(surface: HTMLElement, anchor: HTMLElement, alignEnd = false, point?: { x: number; y: number }) {
+ const rect = point ? new DOMRect(point.x, point.y, 0, 0) : anchor.getBoundingClientRect();
  const gutter = 8, gap = 5;
  const availableWidth = Math.max(1, innerWidth - 2 * gutter);
  surface.style.maxHeight = 'none';

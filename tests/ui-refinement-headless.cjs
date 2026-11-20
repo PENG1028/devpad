@@ -31,6 +31,10 @@ const server=http.createServer((req,res)=>{
    localStorage.setItem('devpad-default-template','engineering');
    window.calls=[];
    window.failCopy=false;
+   let clipboard='';
+   Object.defineProperty(navigator,'clipboard',{configurable:true,value:{
+    writeText:async value=>{clipboard=value;},readText:async()=>clipboard,
+   }});
    const data={
     noteTypes:[],
     projects:[{id:'a',name:'DevPad'},{id:'b',name:'设计整理'}],
@@ -53,6 +57,13 @@ const server=http.createServer((req,res)=>{
       const kind={id:'kind-'+data.noteTypes.length,name:args.name};data.noteTypes.push(kind);return kind;
      }
      if(cmd==='create_project'){const project={id:'new-'+data.projects.length,name:args.name};data.projects.push(project);return project;}
+     if(cmd==='delete_project'){
+      if(!data.projects.some(project=>project.id==='inbox'))data.projects.push({id:'inbox',name:'收件箱'});
+      data.projects=data.projects.filter(project=>project.id!==args.id);
+      data.entries.forEach(entry=>{if(entry.projectId===args.id)entry.projectId='inbox';});
+     }
+     if(cmd==='list_tasks')return [];
+     if(cmd==='mcp_config')return {mcpServers:{devpad:{command:'devpad',args:['--mcp']}}};
      if(cmd==='save_entry')data.entries.unshift(args.entry);
      if(cmd==='copy_bundle'&&window.failCopy){window.failCopy=false;throw Error('剪贴板暂时不可用');}
      if(cmd==='move_entries')data.entries.forEach(entry=>{if(args.ids.includes(entry.id))entry.projectId=args.projectId;});
@@ -268,7 +279,7 @@ const server=http.createServer((req,res)=>{
   await editor.press('Escape');
   await chooseProject('DevPad');
   await page.keyboard.press('ArrowDown');
-  assert.ok(await drawer.getByRole('button',{name:'设计整理'}).evaluate(n=>n===document.activeElement));
+  assert.ok(await drawer.getByRole('button',{name:'设计整理',exact:true}).evaluate(n=>n===document.activeElement));
   assert.equal((await page.locator('.current-project').innerText()).trim(),'DevPad');
   await page.keyboard.press('Enter');
   assert.equal((await page.locator('.current-project').innerText()).trim(),'设计整理');
@@ -295,7 +306,7 @@ const server=http.createServer((req,res)=>{
   await page.screenshot({path:path.join(screenshots,'project-navigation-wide.png')});
   await page.setViewportSize({width:400,height:320});
   await page.waitForFunction(()=>document.querySelector('#project-navigation').matches(':modal'));
-  assert.equal(await drawer.getByRole('button',{name:'设计整理'}).getAttribute('aria-current'),'page');
+  assert.equal(await drawer.getByRole('button',{name:'设计整理',exact:true}).getAttribute('aria-current'),'page');
   await page.screenshot({path:path.join(screenshots,'project-navigation-compact.png')});
   await page.setViewportSize({width:900,height:640});
   await page.waitForFunction(()=>!document.querySelector('#project-navigation').matches(':modal'));
@@ -401,6 +412,60 @@ const server=http.createServer((req,res)=>{
    list.hidePopover();document.querySelector('.journal-select').click();await Promise.resolve();
    list.dispatchEvent(new Event('toggle'));
   });
+  await page.reload();
+  await notes.first().waitFor();
+  assert.equal(await page.evaluate(()=>document.body.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}))),false);
+  await page.getByRole('button',{name:'更多',exact:true}).click();
+  const aboutTab=page.getByRole('tab',{name:'关于'});
+  await aboutTab.click();
+  for(const tool of ['版本与更新','使用帮助']){
+   const launch=page.getByRole('button',{name:tool,exact:true});
+   const settingsRect=await page.locator('.settings-sheet[open]').boundingBox();
+   await launch.click();
+   assert.deepEqual(await page.locator('.settings-sheet[open]').boundingBox(),settingsRect);
+   if(tool==='版本与更新')await page.locator('.settings-sheet[open]').screenshot({path:path.join(screenshots,'settings-updates.png')});
+   if(tool==='使用帮助')await page.keyboard.press('Escape');
+   else await page.getByRole('button',{name:'返回',exact:true}).click();
+   assert.equal(await aboutTab.getAttribute('aria-selected'),'true');
+   assert.ok(await launch.evaluate(button=>button===document.activeElement));
+  }
+  const storage=page.locator('summary').filter({hasText:'本地存储位置'});await storage.click();
+  await page.getByText('headless-fixture',{exact:true}).waitFor();
+  await page.getByRole('combobox',{name:'搜索快捷键'}).click();
+  const onMac=await page.evaluate(()=>/Mac/.test(navigator.platform));
+  await page.getByRole('option',{name:onMac?'⌘K':'Ctrl+K',exact:true}).click();
+  await page.getByRole('tab',{name:'工具'}).click();
+  await page.getByRole('button',{name:'Agent 与 MCP'}).click();
+  await page.locator('summary').filter({hasText:'MCP 配置'}).click();
+  assert.match(await page.locator('.config-code').innerText(),/--mcp/);
+  await page.locator('.settings-sheet[open]').screenshot({path:path.join(screenshots,'settings-agent.png')});
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('tab',{name:'工具'}).getAttribute('aria-selected'),'true');
+  await page.keyboard.press('Escape');
+  await page.reload();
+  await notes.first().waitFor();
+  const mod=onMac?'Meta+':'Control+';
+  await page.keyboard.press(mod+'f');assert.equal(await page.locator('.search-row').count(),0);
+  await page.keyboard.press(mod+'k');
+  const searchField=page.getByRole('searchbox');await searchField.fill('abc');
+  await searchField.click({button:'right'});await page.getByRole('menuitem',{name:'全选'}).click();
+  await searchField.click({button:'right'});await page.getByRole('menuitem',{name:'剪切'}).click();
+  assert.equal(await searchField.inputValue(),'');
+  await searchField.click({button:'right'});await page.getByRole('menuitem',{name:'粘贴'}).click();
+  assert.equal(await searchField.inputValue(),'abc');await page.keyboard.press('Escape');
+  await picker.click();await chooseProject('设计整理');
+  const doomed=drawer.getByRole('button',{name:'设计整理',exact:true});
+  await doomed.click({button:'right'});
+  await page.getByRole('menuitem',{name:'删除项目'}).click();
+  await page.getByRole('dialog',{name:'删除「设计整理」？'}).getByRole('button',{name:'取消'}).click();
+  assert.equal(await doomed.count(),1);
+  await drawer.getByRole('button',{name:'项目操作 · 设计整理'}).click();
+  await page.getByRole('menuitem',{name:'删除项目'}).click();
+  await page.getByRole('dialog',{name:'删除「设计整理」？'}).getByRole('button',{name:'删除项目'}).click();
+  await doomed.waitFor({state:'detached'});
+  assert.equal(await page.locator('.current-project').textContent(),'收件箱');
+  assert.equal(await notes.count(),1);
+  assert.equal(await drawer.getByRole('button',{name:'项目操作 · 收件箱'}).count(),0);
   assert.deepEqual(errors,[]);
   const notebookUrl=page.url();
   await page.close();

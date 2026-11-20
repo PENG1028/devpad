@@ -441,5 +441,16 @@
   "用空格分隔多个 #标签": "Pisahkan beberapa #tag dengan spasi",
   "笔记本正在处理文件": "Buku catatan sedang memproses file",
   "复制": "Salin",
-  "所有类型": "Semua jenis"
+  "所有类型": "Semua jenis",
+  "删除项目": "Hapus proyek",
+  "删除「{project}」？": "Hapus “{project}”?",
+  "项目中的记录和草稿将移到收件箱，附件和已发布的任务会保留。": "Catatan dan draf dalam proyek akan dipindahkan ke Kotak masuk. Lampiran dan tugas yang sudah dipublikasikan akan tetap tersimpan.",
+  "收件箱不能删除。": "Kotak masuk tidak dapat dihapus.",
+  "项目操作": "Tindakan proyek",
+  "搜索快捷键": "Pintasan pencarian",
+  "搜索 · {shortcut}": "Cari · {shortcut}",
+  "剪切": "Potong",
+  "粘贴": "Tempel",
+  "全选": "Pilih semua",
+  "已删除项目": "Proyek dihapus"
 }

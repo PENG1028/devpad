@@ -1,5 +1,7 @@
 <script lang="ts">
  import { t } from './i18n';
+ import ShortcutList from './ShortcutList.svelte';
+ let {modifier,searchKeys}:{modifier:string;searchKeys:string}=$props();
 </script>
 <section class="help-panel" aria-label={$t('帮助')}>
  <h3>{$t('开始使用')}</h3>
@@ -13,9 +15,8 @@
  <h3>{$t('Agent 与 MCP')}</h3>
  <p>{$t('设置中可复制本机 MCP 配置。普通笔记保持独立；从笔记菜单或多选栏发布任务后，agent 可以领取、读取原图并回写完成结果。更新时先断开 MCP 连接，完成后重连。')}</p>
  <h3>{$t('快捷键')}</h3>
- <p>{$t('Windows 用 Ctrl，Mac 用 ⌘。加 N 打开输入，加 Enter 保存，加 F 搜索。Shift 加点击连续选择。输入框外用 Ctrl 或 ⌘ 加 A 全选当前结果。')}</p>
+ <ShortcutList {modifier} {searchKeys}/>
  <h3>{$t('数据与许可')}</h3>
  <p>{$t('笔记与图片保存在本机。数据位置见设置；备份时应保留数据库与附件目录。')}</p>
  <p>{$t('DevPad 采用 PolyForm Noncommercial 1.0.0，允许非商业使用、研究与修改；第三方依赖保留各自许可证。')}</p>
 </section>
-<style>p{font-size:13px;line-height:1.7;color:var(--secondary)}h3{margin-top:20px}</style>

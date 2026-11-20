@@ -441,5 +441,16 @@
   "用空格分隔多个 #标签": "Separe as #etiquetas com espaços",
   "笔记本正在处理文件": "O caderno está processando arquivos",
   "复制": "Copiar",
-  "所有类型": "Todos os tipos"
+  "所有类型": "Todos os tipos",
+  "删除项目": "Excluir projeto",
+  "删除「{project}」？": "Excluir “{project}”?",
+  "项目中的记录和草稿将移到收件箱，附件和已发布的任务会保留。": "As notas e os rascunhos do projeto serão movidos para a caixa de entrada. Os anexos e as tarefas publicadas serão mantidos.",
+  "收件箱不能删除。": "Não é possível excluir a caixa de entrada.",
+  "项目操作": "Ações do projeto",
+  "搜索快捷键": "Atalho de teclado para busca",
+  "搜索 · {shortcut}": "Buscar · {shortcut}",
+  "剪切": "Recortar",
+  "粘贴": "Colar",
+  "全选": "Selecionar tudo",
+  "已删除项目": "Projeto excluído"
 }

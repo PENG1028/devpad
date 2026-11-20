@@ -441,5 +441,16 @@
   "用空格分隔多个 #标签": "#Tags durch Leerzeichen trennen",
   "笔记本正在处理文件": "Das Notizbuch verarbeitet Dateien",
   "复制": "Kopieren",
-  "所有类型": "Alle Typen"
+  "所有类型": "Alle Typen",
+  "删除项目": "Projekt löschen",
+  "删除「{project}」？": "„{project}“ löschen?",
+  "项目中的记录和草稿将移到收件箱，附件和已发布的任务会保留。": "Die Notizen und Entwürfe des Projekts werden in den Posteingang verschoben. Anhänge und veröffentlichte Aufgaben bleiben erhalten.",
+  "收件箱不能删除。": "Der Posteingang kann nicht gelöscht werden.",
+  "项目操作": "Projektaktionen",
+  "搜索快捷键": "Tastenkürzel für die Suche",
+  "搜索 · {shortcut}": "Suchen · {shortcut}",
+  "剪切": "Ausschneiden",
+  "粘贴": "Einfügen",
+  "全选": "Alles auswählen",
+  "已删除项目": "Projekt gelöscht"
 }

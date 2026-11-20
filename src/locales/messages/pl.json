@@ -441,5 +441,16 @@
   "用空格分隔多个 #标签": "Oddzielaj #tagi spacjami",
   "笔记本正在处理文件": "Notatnik przetwarza pliki",
   "复制": "Kopiuj",
-  "所有类型": "Wszystkie typy"
+  "所有类型": "Wszystkie typy",
+  "删除项目": "Usuń projekt",
+  "删除「{project}」？": "Usunąć „{project}”?",
+  "项目中的记录和草稿将移到收件箱，附件和已发布的任务会保留。": "Notatki i wersje robocze projektu zostaną przeniesione do folderu „Odebrane”. Załączniki i opublikowane zadania zostaną zachowane.",
+  "收件箱不能删除。": "Nie można usunąć folderu „Odebrane”.",
+  "项目操作": "Operacje na projekcie",
+  "搜索快捷键": "Skrót klawiszowy wyszukiwania",
+  "搜索 · {shortcut}": "Szukaj · {shortcut}",
+  "剪切": "Wytnij",
+  "粘贴": "Wklej",
+  "全选": "Zaznacz wszystko",
+  "已删除项目": "Projekt usunięty"
 }

@@ -441,5 +441,16 @@
   "用空格分隔多个 #标签": "Scheid #labels met spaties",
   "笔记本正在处理文件": "Het notitieboek verwerkt bestanden",
   "复制": "Kopiëren",
-  "所有类型": "Alle typen"
+  "所有类型": "Alle typen",
+  "删除项目": "Project verwijderen",
+  "删除「{project}」？": "‘{project}’ verwijderen?",
+  "项目中的记录和草稿将移到收件箱，附件和已发布的任务会保留。": "De notities en concepten van het project worden verplaatst naar het Postvak IN. Bijlagen en gepubliceerde taken blijven behouden.",
+  "收件箱不能删除。": "Het Postvak IN kan niet worden verwijderd.",
+  "项目操作": "Projectacties",
+  "搜索快捷键": "Sneltoets voor zoeken",
+  "搜索 · {shortcut}": "Zoeken · {shortcut}",
+  "剪切": "Knippen",
+  "粘贴": "Plakken",
+  "全选": "Alles selecteren",
+  "已删除项目": "Project verwijderd"
 }

@@ -2,6 +2,7 @@
  export let name:string;
  export let size=20;
  const paths:Record<string,string>={
+  back:'m14 5-7 7 7 7',trash:'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7',
   help:'M12 17h.01M9.5 8a2.5 2.5 0 1 1 3 2.5c-.5.3-.5 1-.5 1.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',refresh:'M20 7v5h-5M4 17v-5h5M6 8a7 7 0 0 1 12-2l2 3M18 16a7 7 0 0 1-12 2l-2-3',
   text:'M4 5h16M4 10h16M4 15h10M4 20h7',
   notebook:'M17 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v2M8 11h6M8 15h4M18 11h4M20 11v9M18 20h4',menu:'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM9 4v16',search:'M20 20l-4.5-4.5M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0',

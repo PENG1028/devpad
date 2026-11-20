@@ -11,8 +11,8 @@ pub fn schema(db: &rusqlite::Connection) -> Result<()> {
 pub fn save_draft(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
-    payload: Value,
-    fingerprint: String,
+    mut payload: Value,
+    mut fingerprint: String,
     previous_id: Option<String>,
 ) -> Result<()> {
     if window.label() != "main" && !window.label().starts_with("editor-") {
@@ -40,6 +40,14 @@ pub fn save_draft(
         tx.execute("DELETE FROM drafts WHERE id=?1", [window.label()])
             .map_err(err)?;
     } else {
+        // An autosave from another window can arrive just after its project was removed.
+        if let Some(project) = payload["projectId"].as_str().filter(|id| !id.is_empty()) {
+            let exists = tx.query_row("SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1)", [project], |row| row.get::<_, bool>(0)).map_err(err)?;
+            if !exists {
+                payload["projectId"] = Value::from("inbox");
+                fingerprint.clear();
+            }
+        }
         tx.execute("INSERT INTO drafts(id,payload,fingerprint,updated_at) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,fingerprint=excluded.fingerprint,updated_at=excluded.updated_at",params![window.label(),payload.to_string(),fingerprint,chrono::Utc::now().to_rfc3339()]).map_err(err)?;
     }
     if let Some(old) = previous_id {

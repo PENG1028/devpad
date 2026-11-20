@@ -441,5 +441,16 @@
   "用空格分隔多个 #标签": "Dùng dấu cách để phân tách các #thẻ",
   "笔记本正在处理文件": "Sổ tay đang xử lý tệp",
   "复制": "Sao chép",
-  "所有类型": "Tất cả các loại"
+  "所有类型": "Tất cả các loại",
+  "删除项目": "Xóa dự án",
+  "删除「{project}」？": "Xóa “{project}”?",
+  "项目中的记录和草稿将移到收件箱，附件和已发布的任务会保留。": "Các ghi chú và bản nháp trong dự án sẽ được chuyển vào Hộp thư đến. Tệp đính kèm và các tác vụ đã xuất bản sẽ được giữ lại.",
+  "收件箱不能删除。": "Không thể xóa Hộp thư đến.",
+  "项目操作": "Thao tác với dự án",
+  "搜索快捷键": "Phím tắt tìm kiếm",
+  "搜索 · {shortcut}": "Tìm kiếm · {shortcut}",
+  "剪切": "Cắt",
+  "粘贴": "Dán",
+  "全选": "Chọn tất cả",
+  "已删除项目": "Đã xóa dự án"
 }

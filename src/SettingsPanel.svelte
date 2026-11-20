@@ -2,6 +2,9 @@
  import { tick } from 'svelte';
  import Icon from './Icon.svelte';
  import SelectField from './SelectField.svelte';
+ import Disclosure from './Disclosure.svelte';
+ import ShortcutList from './ShortcutList.svelte';
+ import { searchShortcuts, shortcutLabel, type SearchShortcut } from './shortcuts';
  import { languages, languagePreference, setLanguagePreference, t } from './i18n';
 
  type Theme = 'light' | 'dark' | 'system';
@@ -12,7 +15,7 @@
  ];
  let { theme, chooseTheme, startup, startupBusy, chooseStartup, notebookMode, chooseNotebook,
   notebookDelay, chooseDelay, pinned, pinBusy, choosePinned, modifier, dataDir, onopen, onwindows,
-  onnew, ondraft, onexit }: {
+  onnew, ondraft, onexit, current = $bindable('general'), searchShortcut, chooseSearch }: {
   theme: Theme; chooseTheme: (value: Theme) => void;
   startup: boolean; startupBusy: boolean; chooseStartup: (value: boolean) => void;
   notebookMode: boolean; chooseNotebook: (value: boolean) => void;
@@ -20,9 +23,9 @@
   pinned: boolean; pinBusy: boolean; choosePinned: (value: boolean) => void;
   modifier: string; dataDir: string; onopen: (tool: Tool) => void;
   onwindows: () => void; onnew: () => void; ondraft: () => void; onexit: () => void;
+  current?: Tab; searchShortcut: SearchShortcut; chooseSearch: (shortcut: SearchShortcut) => void;
  } = $props();
  const id = $props.id();
- let current = $state<Tab>('general');
  let tabList: HTMLDivElement;
 
  async function tabKey(event: KeyboardEvent) {
@@ -51,8 +54,8 @@
    onchange={event => change(event.currentTarget.checked)}/>
  </label>
 {/snippet}
-{#snippet action(label: string, perform: () => void, shortcut = '')}
- <button class="setting-action" onclick={perform}><span>{$t(label)}</span>
+{#snippet action(label: string, perform: () => void, shortcut = '', tool = '')}
+ <button class="setting-action" data-settings-tool={tool || undefined} onclick={perform}><span>{$t(label)}</span>
   {#if shortcut}<kbd>{shortcut}</kbd>{:else}<Icon name="chevron" size={15}/>{/if}
  </button>
 {/snippet}
@@ -96,23 +99,24 @@
      {@render action('已打开的独立编辑窗口',onwindows)}
     </section>
     <section><h3>{$t('导出与集成')}</h3>
-     {@render action('导出模板',()=>onopen('templates'))}
-     {@render action('Agent 与 MCP',()=>onopen('agents'))}
+     {@render action('导出模板',()=>onopen('templates'),'','templates')}
+     {@render action('Agent 与 MCP',()=>onopen('agents'),'','agents')}
     </section>
    {:else}
     <section><h3>{$t('帮助与更新')}</h3>
-     {@render action('使用帮助',()=>onopen('help'))}
-     {@render action('版本与更新',()=>onopen('updates'))}
+     {@render action('使用帮助',()=>onopen('help'),'','help')}
+     {@render action('版本与更新',()=>onopen('updates'),'','updates')}
     </section>
     <section><h3>{$t('应用内快捷键')}</h3>
-     <dl class="key-list">
-      {#each [['新建 / 继续输入',modifier+' N'],['保存笔记',modifier+' Enter'],['搜索',modifier+' F'],['全选筛选结果',modifier+' A'],['切换类型','Alt 1–6'],['连续选择',$t('Shift + 点击')]] as [label,keys]}
-       <div><dt>{$t(label)}</dt><dd><kbd>{keys}</kbd></dd></div>
-      {/each}
-     </dl>
+     <div class="preference-row"><span>{$t('搜索快捷键')}</span>
+      <SelectField label={$t('搜索快捷键')} value={searchShortcut}
+       options={searchShortcuts.map(value=>({value,label:shortcutLabel(value,modifier)}))}
+       onchange={value=>chooseSearch(value as SearchShortcut)}/>
+     </div>
+     <ShortcutList {modifier}/>
     </section>
     <section><h3>{$t('本机')}</h3>
-     <details class="data-location"><summary>{$t('本地存储位置')}</summary><p>{dataDir}</p></details>
+     <Disclosure label={$t('本地存储位置')}><p class="storage-path" dir="auto">{dataDir}</p></Disclosure>
      <button class="setting-action exit-action" onclick={onexit}>{$t('退出 DevPad')}</button>
     </section>
    {/if}
@@ -133,10 +137,10 @@
  .settings-page[hidden]{display:none}
  .settings-page section{margin:23px 0 0}
  .settings-page h3{margin:0 0 5px;padding:0 var(--row-pad);font-size:13px;font-weight:500;line-height:20px;color:var(--secondary)}
- .preference-row,.setting-action,.key-list>div,.data-location{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:45px;width:100%;padding:8px var(--row-pad);text-align:start}
- .settings-page section>:is(.preference-row,.setting-action,.data-location)+:is(.preference-row,.setting-action){border-top:1px solid var(--line)}
+ .preference-row,.setting-action{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:45px;width:100%;padding:8px var(--row-pad);text-align:start}
+ .settings-page section>:is(.preference-row,.setting-action)+:is(.preference-row,.setting-action){border-top:1px solid var(--line)}
  .row-copy{min-width:0;display:grid;gap:3px}
- .row-copy small,.data-location p{font-size:12px;line-height:1.5;color:var(--secondary)}
+ .row-copy small{font-size:12px;line-height:1.5;color:var(--secondary)}
  .setting-action{border-radius:0;font-size:14px}
  .setting-action :global(svg){transform:rotate(-90deg);color:var(--secondary);flex:none}
  .preference-row :global(.select-field){flex:none;width:min(44%,180px);font-size:14px}
@@ -144,12 +148,9 @@
  .setting-toggle::before{content:'';display:block;width:14px;height:14px;border-radius:50%;background:var(--secondary);transition:transform var(--motion-feedback)}
  .setting-toggle:checked{background:var(--blue);border-color:var(--blue)}
  .setting-toggle:checked::before{transform:translateX(14px);background:#fff}
- .setting-toggle:focus-visible,.data-location summary:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+ .setting-toggle:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
  .setting-toggle:disabled{opacity:.5}
- .key-list,.key-list dd{margin:0}
- .key-list>div{min-height:33px;padding-block:5px}
- .key-list kbd,.setting-action kbd{font:inherit;font-size:12px;color:var(--secondary);white-space:nowrap}
- .data-location{display:block}.data-location summary{cursor:pointer}.data-location p{overflow-wrap:anywhere;margin:8px 0}
+ .setting-action kbd{font:inherit;font-size:12px;color:var(--secondary);white-space:nowrap}
  .exit-action{color:var(--danger)}
  @media(forced-colors:active){.setting-toggle{appearance:auto}}
 </style>

@@ -8,6 +8,7 @@ use std::{fs, path::{Path, PathBuf}, sync::{Mutex, RwLock}};
 use tauri::Manager;
 mod docking;
 mod note_types;
+mod projects;
 mod delivery;
 mod resident;
 mod drafts;
@@ -53,13 +54,6 @@ fn load(s: tauri::State<Store>) -> Result<Value> {
     let entries=rows.iter().map(|v|serde_json::from_str::<Value>(v).map_err(err)).collect::<Result<Vec<_>>>()?;
     let note_types=note_types::custom(&db)?;
     Ok(json!({"projects":projects,"entries":entries,"noteTypes":note_types,"dataDir":s.root}))
-}
-#[tauri::command]
-fn create_project(s:tauri::State<Store>, name:String)->Result<Value>{
-    let name=name.trim();if name.is_empty() || name.len()>200{return Err(s.language().text("请输入 1–200 字节的项目名称").into())}
-    let id=uuid::Uuid::new_v4().to_string();
-    s.db.lock().map_err(err)?.execute("INSERT INTO projects(id,name) VALUES(?1,?2)",params![id,name]).map_err(err)?;
-    Ok(json!({"id":id,"name":name}))
 }
 #[tauri::command]
 fn save_entry(s:tauri::State<Store>, window:tauri::WebviewWindow, entry:Value, consume_draft:Option<bool>)->Result<()> {
@@ -172,6 +166,11 @@ async fn paste_clipboard(app:tauri::AppHandle)->Result<Value>{
     tauri::async_runtime::spawn_blocking(move||read_clipboard(&app.state::<Store>())).await.map_err(err)?
 }
 #[tauri::command]
+fn clipboard_text()->Result<String>{
+    let mut clipboard=arboard::Clipboard::new().map_err(err)?;
+    match clipboard.get_text(){Ok(text)=>Ok(text),Err(arboard::Error::ContentNotAvailable)=>Ok(String::new()),Err(error)=>Err(err(error))}
+}
+#[tauri::command]
 fn copy_text(text:String)->Result<()>{arboard::Clipboard::new().map_err(err)?.set_text(text).map_err(err)}
 #[tauri::command]
 async fn copy_image(app:tauri::AppHandle,path:String)->Result<()> {
@@ -266,7 +265,7 @@ fn main(){if std::env::args().any(|arg|arg=="--mcp"){if let Err(error)=mcp::run(
     resident::setup(app)?;
     let handle=app.handle().clone();std::thread::spawn(move||{use tauri::Emitter;let mut previous=0_i64;loop{std::thread::sleep(std::time::Duration::from_secs(2));let s=handle.state::<Store>();if let Ok(db)=s.db.lock(){if let Ok(version)=db.query_row("PRAGMA data_version",[],|r|r.get::<_,i64>(0)){if version!=previous{let _=handle.emit("db-changed",());}previous=version;}};}});
     docking::start_clock(app.handle().clone());Ok(())
-}).invoke_handler(tauri::generate_handler![load,note_types::create_note_type,create_project,save_entry,batch,move_entries,add_image,paste_clipboard,copy_text,copy_image,copy_images,export_bundle,open_aux,window_payload,editor_dirty,editor_release,editor_windows,focus_editor,exit_decision,window_ready,locale::get_locale,locale::set_locale,docking::notebook_surface_ready,docking::notebook_drag,edge_check,edge_restore,return_to_list,hide_to_tray,exit_app,resident_action,startup_enabled,set_startup,notebook_tick,notebook_config,notebook_pause,notebook_activity,notebook_collapse,bubble_status,bubble_settle,drafts::save_draft,drafts::list_drafts,drafts::discard_draft,updates::update_info,updates::set_update_channel,updates::check_update,updates::install_update,tasks::publish_task,tasks::list_tasks,tasks::cancel_task,tasks::mcp_config,clipboard::copy_bundle]).run(context).expect("DevPad 启动失败");}
+}).invoke_handler(tauri::generate_handler![load,note_types::create_note_type,projects::create_project,projects::delete_project,save_entry,batch,move_entries,add_image,paste_clipboard,clipboard_text,copy_text,copy_image,copy_images,export_bundle,open_aux,window_payload,editor_dirty,editor_release,editor_windows,focus_editor,exit_decision,window_ready,locale::get_locale,locale::set_locale,docking::notebook_surface_ready,docking::notebook_drag,edge_check,edge_restore,return_to_list,hide_to_tray,exit_app,resident_action,startup_enabled,set_startup,notebook_tick,notebook_config,notebook_pause,notebook_activity,notebook_collapse,bubble_status,bubble_settle,drafts::save_draft,drafts::list_drafts,drafts::discard_draft,updates::update_info,updates::set_update_channel,updates::check_update,updates::install_update,tasks::publish_task,tasks::list_tasks,tasks::cancel_task,tasks::mcp_config,clipboard::copy_bundle]).run(context).expect("DevPad 启动失败");}
 
 #[cfg(test)]
 mod tests {

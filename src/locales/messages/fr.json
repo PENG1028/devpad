@@ -441,5 +441,16 @@
   "用空格分隔多个 #标签": "Séparez les #étiquettes par des espaces",
   "笔记本正在处理文件": "Le carnet traite des fichiers",
   "复制": "Copier",
-  "所有类型": "Tous les types"
+  "所有类型": "Tous les types",
+  "删除项目": "Supprimer le projet",
+  "删除「{project}」？": "Supprimer « {project} » ?",
+  "项目中的记录和草稿将移到收件箱，附件和已发布的任务会保留。": "Les notes et les brouillons du projet seront déplacés dans la boîte de réception. Les pièces jointes et les tâches publiées seront conservées.",
+  "收件箱不能删除。": "La boîte de réception ne peut pas être supprimée.",
+  "项目操作": "Actions du projet",
+  "搜索快捷键": "Raccourci clavier de recherche",
+  "搜索 · {shortcut}": "Rechercher · {shortcut}",
+  "剪切": "Couper",
+  "粘贴": "Coller",
+  "全选": "Tout sélectionner",
+  "已删除项目": "Projet supprimé"
 }

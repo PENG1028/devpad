@@ -3,17 +3,26 @@
  import { tick, untrack, type Snippet } from 'svelte';
  import { slide } from 'svelte/transition';
  import Icon from './Icon.svelte';
+ import ActionPopover from './ActionPopover.svelte';
+ import { openContextMenu } from './context-menu';
  import type { Entry, Project } from './core';
 
  let { open, docked, projects, entries, current, matched, filterCount, creating = $bindable(false),
-  onselect, oncreate, onclose, onclosed, filters }: {
+  onselect, oncreate, ondelete, onclose, onclosed, filters }: {
   open: boolean; docked: boolean; projects: Project[]; entries: Entry[]; current: string;
   matched: number; filterCount: number; creating?: boolean;
   onselect: (id: string) => void; oncreate: (name: string) => Promise<void>;
+  ondelete: (project: Project) => Promise<void>;
   onclose: () => void; onclosed: () => void; filters: Snippet;
  } = $props();
 
  let drawer = $state<HTMLDialogElement>();
+ let projectMenu: ActionPopover, menuProject = $state<Project>();
+ async function showActions(project: Project, trigger: HTMLElement, event?: MouseEvent) {
+  if (!project.id || project.id === 'inbox') return;
+  menuProject = project;
+  await projectMenu.show(trigger, event && (event.clientX || event.clientY) ? {x:event.clientX,y:event.clientY} : undefined);
+ }
  let nameInput = $state<HTMLInputElement>(null!);
  let name = $state(''), problem = $state(''), saving = $state(false), showFilters = $state(false);
  const counts = $derived.by(() => {
@@ -122,12 +131,20 @@
   {/if}
   <nav aria-label={$t('项目列表')}>
    {#each options as project (project.id)}
+    <div class="project-item">
     <button class="project-row" aria-label={projectLabel(project, $t)} aria-current={current === project.id ? 'page' : undefined}
-     onclick={event => { event.currentTarget.focus({preventScroll:true}); onselect(project.id); }} onkeydown={navigateKeys}>
+     oncontextmenu={e=>{const row=e.currentTarget;openContextMenu(()=>void showActions(project,row,e));}}
+     onclick={event => { event.currentTarget.focus({preventScroll:true}); onselect(project.id); }}
+     onkeydown={e=>{if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){e.preventDefault();void showActions(project,e.currentTarget);}else navigateKeys(e);}}>
      <Icon name={project.id ? 'folder' : 'notebook'} size={17}/>
      <span class="project-name">{projectLabel(project, $t)}</span>
      <span class="project-count">{project.id ? counts.get(project.id) ?? 0 : entries.length}</span>
     </button>
+    {#if project.id && project.id !== 'inbox'}
+     <button class="project-actions" aria-haspopup="menu" aria-label={$t('项目操作')+' · '+projectLabel(project,$t)}
+      data-tip={$t('项目操作')} onclick={e=>showActions(project,e.currentTarget)}><Icon name="more" size={16}/></button>
+    {/if}
+    </div>
    {/each}
   </nav>
   <div class="nav-filter">
@@ -138,5 +155,8 @@
    {#if showFilters}<div class="nav-filter-fields" transition:slide={{duration:duration()}}>{@render filters()}</div>{/if}
   </div>
  </div>
+ <ActionPopover id="project-actions" label={$t('项目操作')} bind:this={projectMenu}>
+  {#if menuProject}<button role="menuitem" class="menu-row danger-text" onclick={()=>menuProject&&ondelete(menuProject)}><Icon name="trash" size={16}/>{$t('删除项目')}</button>{/if}
+ </ActionPopover>
  {#if !docked}<footer class="nav-footer"><button class="blue-button" onclick={onclose}>{$t('查看 {count} 条记录', { count: matched })}</button></footer>{/if}
 </dialog>

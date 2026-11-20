@@ -441,5 +441,16 @@
   "用空格分隔多个 #标签": "Separate #tags with spaces",
   "笔记本正在处理文件": "The notebook is processing files",
   "复制": "Copy",
-  "所有类型": "All types"
+  "所有类型": "All types",
+  "删除项目": "Delete project",
+  "删除「{project}」？": "Delete “{project}”?",
+  "项目中的记录和草稿将移到收件箱，附件和已发布的任务会保留。": "Notes and drafts will move to the Inbox. Attachments and published tasks will be kept.",
+  "收件箱不能删除。": "The Inbox cannot be deleted.",
+  "项目操作": "Project actions",
+  "搜索快捷键": "Search shortcut",
+  "搜索 · {shortcut}": "Search · {shortcut}",
+  "剪切": "Cut",
+  "粘贴": "Paste",
+  "全选": "Select all",
+  "已删除项目": "Project deleted"
 }

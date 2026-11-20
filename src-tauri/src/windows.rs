@@ -127,8 +127,11 @@ pub async fn open_aux(app:tauri::AppHandle,kind:String,payload:Value)->Result<St
         return Ok(label)
     }
     let pinned=app.get_webview_window("main").and_then(|w|w.is_always_on_top().ok()).unwrap_or(false);
-    if let Err(e)=tauri::WebviewWindowBuilder::new(&app,&label,tauri::WebviewUrl::App(format!("index.html?window={}&instance={label}",if label=="organizer"{"organizer"}else{&kind}).into()))
-        .title(title).inner_size(w,h).min_inner_size(420.,380.).decorations(false).visible(false).disable_drag_drop_handler().always_on_top(pinned).center().build() {
+    let builder=tauri::WebviewWindowBuilder::new(&app,&label,tauri::WebviewUrl::App(format!("index.html?window={}&instance={label}",if label=="organizer"{"organizer"}else{&kind}).into()))
+        .title(title).inner_size(w,h).min_inner_size(420.,380.).decorations(cfg!(target_os="macos")).visible(false).disable_drag_drop_handler().always_on_top(pinned).center();
+    #[cfg(target_os="macos")]
+    let builder=builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true).traffic_light_position(tauri::LogicalPosition::new(14.,15.));
+    if let Err(e)=builder.build() {
         cleanup(&app,&label);return Err(err(e))
     }
     Ok(label)

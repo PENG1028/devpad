@@ -14,16 +14,21 @@
   surface.hidePopover(); open = false;
   if (restore && anchor?.isConnected) anchor.focus({ preventScroll: true });
  }
- export async function show(trigger: HTMLElement) {
-  if (pending === trigger || (anchor === trigger && surface?.matches(':popover-open'))) { close(true); return; }
+ export async function show(trigger: HTMLElement, point?: { x: number; y: number }, portal = false) {
+  if (!point && (pending === trigger || (anchor === trigger && surface?.matches(':popover-open')))) { close(true); return; }
   pending = trigger;
   await tick();
   if (pending !== trigger) return;
   pending = undefined;
-  if (!trigger.isConnected || !surface?.isConnected) return;
+  if (!trigger.isConnected) return;
+  if (portal) {
+   const host = trigger.closest('dialog[open]') ?? document.body;
+   if (surface.parentElement !== host) host.append(surface);
+  }
+  if (!surface?.isConnected) return;
   anchor = trigger;
   if (!surface.matches(':popover-open')) surface.showPopover();
-  placePopover(surface, trigger, true);
+  placePopover(surface, trigger, !point, point);
   surface.scrollTop = 0;
   open = true;
   focusPopoverItem(buttons()[0], surface);

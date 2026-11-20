@@ -87,7 +87,16 @@ dialog[open]::backdrop { opacity: 1; }
  min-height: 38px; margin: 2px 0; padding: 6px 11px; text-align: start; font-size: 14px;
  border-radius: 7px;
 }
-.project-row { position: relative; }
+/* AppKit places its window controls on the physical left in both layout directions. */
+html[data-native-mac] :is(.journal-titlebar,.aux-titlebar) { padding-left:84px; padding-right:10px; }
+html[data-native-mac] .window-controls,.journal-titlebar [hidden] { display:none; }
+.project-row, .project-item { position: relative; }
+.project-actions { position:absolute; inset-inline-end:4px; top:50%; transform:translateY(-50%); padding:4px; min-height:28px; width:28px; height:28px; color:var(--secondary); }
+.project-item:has(.project-actions) .project-count { visibility:hidden; }
+@media(hover:hover) and (pointer:fine) {
+ .project-item:not(:hover):not(:focus-within) .project-actions { opacity:0; }
+ .project-item:not(:hover):not(:focus-within) .project-count { visibility:visible; }
+}
 .project-row > svg, .filter-disclosure > svg { flex: none; color: var(--secondary); }
 .project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .project-count { margin-inline-start: auto; color: var(--secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -122,7 +131,7 @@ dialog[open]::backdrop { opacity: 1; }
  position:fixed; inset:auto; margin:0; padding:4px; box-sizing:border-box;
  border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--text); box-shadow:var(--elevation);
 }
-.action-popover,.options-scroll,.settings-page { scrollbar-width:thin; scrollbar-color:var(--line) transparent; overscroll-behavior:contain; }
+.action-popover,.options-scroll,.settings-page { overscroll-behavior:contain; }
 .action-popover { overflow-y:auto; }
 .menu-surface button {
  display:flex; align-items:center; gap:8px; width:100%; min-height:33px; justify-content:flex-start;
@@ -148,7 +157,7 @@ dialog[open]::backdrop { opacity: 1; }
 .delivery-format { display:flex; align-self:flex-start; gap:3px; padding:3px; background:var(--surface); border-radius:8px; }
 .delivery-format button { font-size:14px; min-height:30px; padding:3px 12px; }
 .delivery-format [aria-pressed=true] { background:var(--bg); box-shadow:0 0 0 1px var(--line); }
-.sheet.standalone.settings-sheet .sheet-header { display:none; }
+.sheet.standalone.settings-sheet:not(.settings-detail) .sheet-header { display:none; }
 .sheet.settings-sheet .sheet-body { padding-inline:clamp(16px,4vw,24px); }
 .sheet.settings-sheet:not(.standalone) { width:min(480px,calc(100vw - 24px)); height:min(560px,calc(100dvh - 24px));max-height:calc(100dvh - 24px); }
 .journal-note-head .range-action { min-height:30px; flex:none; max-width:55%; padding:3px 8px; font-size:12px; line-height:16px; color:var(--secondary); text-align:end; }
@@ -209,6 +218,35 @@ dialog:not([open])::backdrop { pointer-events: none; }
 [dir=rtl] .settings .setting-toggle:checked::before { transform:translateX(-14px); }
 
 .sheet.settings-sheet .sheet-body { flex:1;min-height:0;overflow:hidden;padding-bottom:0; }
+.settings-root { height:100%; min-height:0; }
+.settings-root[hidden] { display:none; }
+.sheet.settings-detail .sheet-body { overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.sheet.settings-detail .sheet-header { display:flex; align-items:center; gap:8px; }
+.sheet.settings-detail .sheet-header h2 { flex:1; }
+.sheet.standalone.settings-detail .sheet-header .settings-back { display:inline-flex; }
+.sheet-header .settings-back { width:30px; height:30px; min-height:30px; padding:6px; }
+.settings-back:dir(rtl) svg { transform:scaleX(-1); }
+.settings-detail-body { min-width:0; padding-block:8px 20px; }
+.settings-detail-body h3 { font-size:15px; line-height:1.45; font-weight:500; margin:20px 0 6px; }
+.settings-detail-body h3:first-child { margin-top:0; }
+.settings-detail-body p { margin:5px 0 9px; font-size:13px; line-height:1.65; color:var(--secondary); overflow-wrap:anywhere; }
+.settings-detail-body p[role=alert],.edit-menu-error { color:var(--danger); }
+.edit-menu-error { position:fixed; inset:auto 12px 12px; padding:8px; background:var(--bg); }
+.disclosure { width:100%; border-block-end:1px solid var(--line); }
+.disclosure summary { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 4px; min-height:42px; cursor:pointer; list-style:none; font-size:14px; }
+.disclosure summary::-webkit-details-marker { display:none; }
+.disclosure summary svg { color:var(--secondary); transition:transform var(--motion-feedback); }
+.disclosure[open] > summary svg { transform:rotate(180deg); }
+.disclosure-body { padding:0 4px 10px; overflow-wrap:anywhere; }
+.storage-path { color:var(--secondary); user-select:text; font-size:12px; }
+:root { --scroll-thumb:color-mix(in srgb, var(--secondary) 52%, transparent); }
+* { scrollbar-width:thin; scrollbar-color:var(--scroll-thumb) transparent; }
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-track,::-webkit-scrollbar-corner { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--scroll-thumb); border:2px solid transparent; background-clip:padding-box; border-radius:8px; }
+@media(prefers-reduced-motion:no-preference) { .settings-detail-body { animation:detail-appear 140ms ease-out; } @keyframes detail-appear { from {opacity:.55;transform:translateY(3px);} } }
+@media(prefers-reduced-motion:reduce) { .disclosure summary svg { transition:none; } }
+@media(forced-colors:active) { * { scrollbar-color:auto; } }
 .journal-titlebar .project-picker { flex:none;width:32px;min-width:32px;max-width:32px;height:32px;min-height:32px;padding:7px; }
 .current-project { cursor:pointer;min-width:0;max-width:min(29vw,260px);margin-inline-start:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:400;color:var(--text);transition:margin-inline-start var(--motion-navigation) var(--ease-navigation); }
 .journal-titlebar.with-navigation .current-project { margin-inline-start:calc(var(--navigation-width) - 25px); }

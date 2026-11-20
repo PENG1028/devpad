@@ -10,6 +10,8 @@
  import AgentPanel from './AgentPanel.svelte';
  import TemplateSettings from './TemplateSettings.svelte';
  import SettingsPanel from './SettingsPanel.svelte';
+ import { openContextMenu } from './context-menu';
+ import { readSearchShortcut, searchPreference, shortcutLabel, matchesSearch as matchesShortcut, type SearchShortcut } from './shortcuts';
  import {loadTemplates,defaultTemplate} from './templates';
  import SelectField from './SelectField.svelte';
  import ProjectNavigation from './ProjectNavigation.svelte';
@@ -47,7 +49,23 @@
  let returnFromNavigation=false;
  let dockElement=$state<HTMLDivElement>(), dockAnimation:Animation|undefined, timelineAnimation:Animation|undefined;
  let searchPosition=0;
+ type SettingsTool = 'help'|'updates'|'agents'|'templates';
+ const isSettingsTool=(value: unknown): value is SettingsTool => value==='help'||value==='updates'||value==='agents'||value==='templates';
+ let settingsTool=$state<SettingsTool|null>(null), settingsTab=$state<'general'|'tools'|'about'>('general');
  const modifier=/Mac|iPhone|iPad/.test(navigator.platform)?'⌘':'Ctrl';
+ const nativeMac=document.documentElement.dataset.nativeMac==='true';
+ let macFullscreen=$state(false);
+ let searchShortcut=$state(readSearchShortcut());
+ const searchKeys=$derived(shortcutLabel(searchShortcut,modifier));
+ function chooseSearch(value:SearchShortcut){searchShortcut=value;localStorage.setItem(searchPreference,value);}
+ async function enterSettingsTool(value:SettingsTool){
+  settingsTab=value==='help'||value==='updates'?'about':'tools';
+  settingsTool=value;await tick();modal?.querySelector<HTMLElement>('.settings-back')?.focus({preventScroll:true});
+ }
+ async function backToSettings(){
+  const previous=settingsTool;settingsTool=null;await tick();
+  modal?.querySelector<HTMLElement>('[data-settings-tool="'+previous+'"]')?.focus({preventScroll:true});
+ }
  const windowKind=new URLSearchParams(location.search).get('window')||'main';
  let initialized=$state(false),initializationError=$state('');
  let editRevision=$state(0);
@@ -164,7 +182,8 @@
   if(windowKind==='image'&&payload.kind!=='image')return;
   if(payload.kind==='delivery'){deliverySession=data.session;deliveryBatch=data.session.batch;deliveryOrder='selected';deliveryFormat='original';}
   preview=data.preview||null;projectId=data.projectId||projectId;selected=data.selected||[];filterTypes=data.filterTypes||[];status=data.status||'';tag=data.tag||'';hasImages=!!data.hasImages;search=data.search||'';projectName=data.projectName||'';
-  panel=payload.kind;await tick();if(!modal.open)modal.show();
+  settingsTool=null;panel=isSettingsTool(payload.kind)?'more':payload.kind;await tick();if(!modal.open)modal.show();
+  if(isSettingsTool(payload.kind))await enterSettingsTool(payload.kind);
   const prompt=modal.querySelector<HTMLTextAreaElement>('.prompt-preview');if(prompt){prompt.setSelectionRange(0,0);prompt.scrollTop=0;}
  }
  async function selectMode(){selecting=true;expanded=false;closePanel();}
@@ -317,14 +336,19 @@
  $effect(()=>{document.documentElement.dataset.theme=resolvedTheme;document.documentElement.style.colorScheme=resolvedTheme;});
  function chooseTheme(value:'light'|'dark'|'system'){theme=value;if(localStorage.getItem('devpad-theme')!==value)localStorage.setItem('devpad-theme',value);}
  async function refresh(){
-  const previousProject=entries.find(e=>e.id===editing)?.projectId;
+  const previousEntry=entries.find(e=>e.id===editing);
+  const previousProject=previousEntry?.projectId;
   const data=await invoke<{projects:Project[];entries:Entry[];noteTypes?:CustomType[];dataDir:string}>('load');
   const moved=data.entries.find(e=>e.id===editing);
   if(previousProject&&moved&&moved.projectId!==previousProject&&draftProjectId===previousProject){
    draftProjectId=moved.projectId;
-   const baseline=JSON.parse(editBaseline);baseline.projectId=draftProjectId;editBaseline=JSON.stringify(baseline);
+   if(previousEntry && editRevision===(previousEntry.revision??0) && moved.revision===editRevision+1 &&
+      editorSignature({...previousEntry,tagInput:previousEntry.tags.join(' '),projectId:moved.projectId})===editorSignature({...moved,tagInput:moved.tags.join(' ')}))editRevision=moved.revision;
+   if(editBaseline){const baseline=JSON.parse(editBaseline);baseline.projectId=draftProjectId;editBaseline=JSON.stringify(baseline);}
   }
   projects=data.projects;customTypes=data.noteTypes??[];entries=data.entries;dataDir=data.dataDir;
+  if(projectId&&!projects.some(item=>item.id===projectId)){projectId=projects.some(item=>item.id==='inbox')?'inbox':'';clearFilters();}
+  if(draftProjectId&&!projects.some(item=>item.id===draftProjectId))draftProjectId=projects.find(item=>item.id==='inbox')?.id||defaultProjectId;
   selected=selected.filter(id=>visible.some(e=>e.id===id));
  }
  async function run(action:()=>Promise<void>){error='';retryAction=null;try{await action();}catch(e){error=String(e);}}
@@ -334,12 +358,14 @@
   try{await action();}catch(e){error=String(e);retryAction=()=>perform(action);}finally{busy=false;}
  }
  onMount(()=>{
+  const pasteIntoEditor=(event:Event)=>{if(event.target===editor&&canPasteIntoNote(event.target))void nativePaste();};
+  document.addEventListener('devpad-paste-note',pasteIntoEditor);
   const clearCopyOptions=()=>{copyOptionsFor='';};
   window.addEventListener('scroll',clearCopyOptions,true);
   window.addEventListener('resize',clearCopyOptions);
   const media=matchMedia('(prefers-color-scheme: dark)');systemDark=media.matches;const changed=()=>systemDark=media.matches;media.addEventListener('change',changed);
   let stopped=false;const cleanup:(()=>void)[]=[];
-  const storage=(event:StorageEvent)=>{if(event.key?.startsWith('devpad-export')||event.key==='devpad-default-template')reloadTemplates();if(event.key==='devpad-theme')theme=preference();if(event.key==='devpad-notebook-mode'){notebookMode=localStorage.getItem('devpad-notebook-mode')==='true';if(!auxiliary)void run(async()=>{await syncNotebook();if(!notebookMode)await invoke('edge_restore',{animate:false});});}if(event.key==='devpad-notebook-delay'){notebookDelay=Number(localStorage.getItem('devpad-notebook-delay'))||30;if(!auxiliary)void syncNotebook();}};window.addEventListener('storage',storage);window.addEventListener('devpad-templates-changed',reloadTemplates);
+  const storage=(event:StorageEvent)=>{if(event.key===searchPreference)searchShortcut=readSearchShortcut();if(event.key?.startsWith('devpad-export')||event.key==='devpad-default-template')reloadTemplates();if(event.key==='devpad-theme')theme=preference();if(event.key==='devpad-notebook-mode'){notebookMode=localStorage.getItem('devpad-notebook-mode')==='true';if(!auxiliary)void run(async()=>{await syncNotebook();if(!notebookMode)await invoke('edge_restore',{animate:false});});}if(event.key==='devpad-notebook-delay'){notebookDelay=Number(localStorage.getItem('devpad-notebook-delay'))||30;if(!auxiliary)void syncNotebook();}};window.addEventListener('storage',storage);window.addEventListener('devpad-templates-changed',reloadTemplates);
   if(isTauri())void run(async()=>{
    const subscriptions=await Promise.all([
     getCurrentWindow().listen<any>('aux-input',event=>void run(()=>acceptAux(event.payload))),
@@ -367,9 +393,9 @@
    await refreshDrafts(true);initialized=true;ready=true;if(canDraft&&dirty)await persistDraft();
    if(windowKind==='more')await readDesktopPreferences();
   }).finally(async()=>{if(auxiliary){if(!initialized)initializationError=error||$t('窗口初始化失败');await tick();await invoke('window_ready');}});
-  void run(async()=>{if(!isTauri()){await refresh();ready=true;initialized=true;}if(isTauri()){const win=getCurrentWindow();if(!auxiliary && localStorage.getItem('devpad-main-on-top')==='true')await win.setAlwaysOnTop(true);maximized=await win.isMaximized();const resize=await win.onResized(async()=>{maximized=await win.isMaximized();});const moved=await win.onMoved(notebookActivity);const close=await win.onCloseRequested(async(event)=>{if(annotating){event.preventDefault();return;}if(panelWindow&&panel==='filters')await sendMain('filters',{filterTypes:[...filterTypes],status,tag,hasImages,search});if(!auxiliary){event.preventDefault();return;}if(busy){event.preventDefault();announce('正在处理，请稍后再关闭');return;}if(dirty&&!allowClose&&editorWindow){event.preventDefault();try{await persistDraft();allowClose=true;await win.close();}catch(e){error=$t('草稿保存失败：{error}',{error:String(e)});}return;}if(dirty&&!allowClose){event.preventDefault();if(await confirmation.ask('当前文字、图片和引用尚未保存。你可以继续编辑，或放弃后关闭窗口。','放弃并关闭',editorWindow?'关闭写笔记窗口？':'关闭 DevPad？','继续编辑')){allowClose=true;await win.close();}} });if(stopped){resize();close();moved();}else cleanup.push(resize,close,moved);}}).finally(async()=>{if(isTauri()&&!auxiliary){await tick();await invoke('window_ready');}});
+  void run(async()=>{if(!isTauri()){await refresh();ready=true;initialized=true;}if(isTauri()){const win=getCurrentWindow();if(!auxiliary && localStorage.getItem('devpad-main-on-top')==='true')await win.setAlwaysOnTop(true);const updateWindowState=async()=>{maximized=await win.isMaximized();if(nativeMac)macFullscreen=await win.isFullscreen();};await updateWindowState();const resize=await win.onResized(updateWindowState);const moved=await win.onMoved(notebookActivity);const close=await win.onCloseRequested(async(event)=>{if(annotating){event.preventDefault();return;}if(panelWindow&&panel==='filters')await sendMain('filters',{filterTypes:[...filterTypes],status,tag,hasImages,search});if(!auxiliary){event.preventDefault();return;}if(busy){event.preventDefault();announce('正在处理，请稍后再关闭');return;}if(dirty&&!allowClose&&editorWindow){event.preventDefault();try{await persistDraft();allowClose=true;await win.close();}catch(e){error=$t('草稿保存失败：{error}',{error:String(e)});}return;}if(dirty&&!allowClose){event.preventDefault();if(await confirmation.ask('当前文字、图片和引用尚未保存。你可以继续编辑，或放弃后关闭窗口。','放弃并关闭',editorWindow?'关闭写笔记窗口？':'关闭 DevPad？','继续编辑')){allowClose=true;await win.close();}} });if(stopped){resize();close();moved();}else cleanup.push(resize,close,moved);}}).finally(async()=>{if(isTauri()&&!auxiliary){await tick();await invoke('window_ready');}});
   if(!auxiliary&&isTauri()){void syncNotebook();document.addEventListener('keydown',notebookActivity);}
-  return()=>{document.removeEventListener('keydown',notebookActivity);stopped=true;window.removeEventListener('scroll',clearCopyOptions,true);window.removeEventListener('resize',clearCopyOptions);window.removeEventListener('storage',storage);window.removeEventListener('devpad-templates-changed',reloadTemplates);media.removeEventListener('change',changed);cleanup.forEach(f=>f());};
+  return()=>{document.removeEventListener('devpad-paste-note',pasteIntoEditor);document.removeEventListener('keydown',notebookActivity);stopped=true;window.removeEventListener('scroll',clearCopyOptions,true);window.removeEventListener('resize',clearCopyOptions);window.removeEventListener('storage',storage);window.removeEventListener('devpad-templates-changed',reloadTemplates);media.removeEventListener('change',changed);cleanup.forEach(f=>f());};
  });
  async function openPanel(value:Panel){
   dismissMenus();
@@ -378,7 +404,9 @@
    if(value==='new-project')creatingProject=true;
    returnFromNavigation=false;navigationOpen=true;return;
   }
-   if(auxiliary&&value&&['more','help','updates','templates','agents'].includes(value)){
+  if(isSettingsTool(value)){if(panel!=='more')await openPanel('more');await enterSettingsTool(value);return;}
+  if(value==='more'){settingsTool=null;settingsTab='general';}
+   if(auxiliary&&value==='more'&&!panelWindow){
     await run(async()=>{await invoke('open_aux',{kind:value,payload:snapshot()});});return;
    }
   panel=value;await tick();
@@ -418,6 +446,15 @@
   if(motion())timelineAnimation=scroller?.firstElementChild?.animate(
    [{opacity:.48,transform:'translateX(5px)'},{opacity:1,transform:'translateX(0)'}],
    {duration:160,easing:'cubic-bezier(.2,0,0,1)'});
+ }
+ async function deleteNavigationProject(target:Project){
+  if(!target.id||target.id==='inbox'||busy)return;
+  if(!await confirmation.ask('项目中的记录和草稿将移到收件箱，附件和已发布的任务会保留。','删除项目',$t('删除「{project}」？',{project:target.name}),'取消'))return;
+  await perform(async()=>{
+   await invoke('delete_project',{id:target.id});await refresh();await refreshDrafts();
+   announce('已删除项目');await tick();
+   document.querySelector<HTMLElement>('.project-navigation .project-row[aria-current="page"]')?.focus({preventScroll:true});
+  });
  }
  async function createNavigationProject(name:string){
   const project=await invoke<Project>('create_project',{name});
@@ -616,6 +653,8 @@
   const input=['INPUT','TEXTAREA','SELECT'].includes(target.tagName)||target.isContentEditable;
   if(event.key==='Escape'){
    if(copyOptionsFor){event.preventDefault();copyOptionsFor='';return;}
+   if(settingsTool&&modal?.open&&!document.querySelector(':popover-open')){event.preventDefault();void backToSettings();return;}
+   if(panelWindow&&modal?.open){event.preventDefault();closePanel();return;}
    if(imageModal?.open||modal?.open)return;
    if(compactNavigation)return;
    if(navigationOpen&&(target.closest('.project-navigation')||target===projectTrigger)){event.preventDefault();void closeNavigation();return;}
@@ -634,7 +673,8 @@
   if(command&&!event.altKey&&!event.shiftKey&&lower==='v'&&isTauri()&&canPasteIntoNote(event.target)){event.preventDefault();void nativePaste();}
   if(command&&event.key==='Enter'&&expanded){event.preventDefault();void save();}
   if(command&&lower==='n'){event.preventDefault();void newEntry();}
-  if(command&&lower==='f'&&!editorWindow){event.preventDefault();void openSearch();}
+  if(!editorWindow&&matchesShortcut(event,searchShortcut)){event.preventDefault();void openSearch();}
+  else if(searchShortcut!=='F'&&matchesShortcut(event,'F'))event.preventDefault();
   if(command&&lower==='a'&&!input&&!editorWindow&&!event.shiftKey&&!event.altKey){event.preventDefault();selectAll();}
   if(command&&lower==='c'&&!input&&selecting&&selected.length&&!window.getSelection()?.toString()){
    event.preventDefault();void copyOutput(selected,selectionCopyMode);
@@ -687,10 +727,10 @@
   <button id="project-picker" class="project-picker" bind:this={projectTrigger} aria-label={$t('切换项目')} aria-expanded={navigationOpen} aria-controls="project-navigation" data-tip={$t('项目列表')} onclick={()=>navigationOpen?closeNavigation():openPanel('filters')}><Icon name="menu" size={18}/></button>
   <label class="current-project" for="project-picker">{displayProject(project,$t('全部记录'))}</label>
   <div class="drag-space" role="presentation" onmousedown={(e)=>{if(e.button===0&&e.detail===1)void windowAction('drag');}} ondblclick={()=>windowAction('maximize')}></div>
-  <button bind:this={searchTrigger} class="icon-button" aria-label={$t('搜索笔记')} aria-expanded={searching} data-tip={$t('搜索 · {key} F',{key:modifier})} onclick={()=>searching?closeSearch():openSearch()}><Icon name="search"/></button>
+  <button bind:this={searchTrigger} class="icon-button" aria-label={$t('搜索笔记')} aria-expanded={searching} data-tip={$t('搜索 · {shortcut}',{shortcut:searchKeys})} aria-keyshortcuts={(modifier==='⌘'?'Meta+':'Control+')+searchShortcut} onclick={()=>searching?closeSearch():openSearch()}><Icon name="search"/></button>
   <button class="journal-select" aria-pressed={selecting} aria-label={selecting?$t('退出多选'):$t('多选')} data-tip={selecting?$t('退出多选'):$t('多选')} onclick={toggleSelection}><Icon name="check" size={16}/><span class="selection-label" data-inactive={$t('多选')} data-active={$t('退出多选')}>{selecting?$t('退出多选'):$t('多选')}</span></button>
   {#if collapseFeedback}<span class="collapse-feedback" role="status">{collapseFeedback}<button aria-label={$t('关闭提示')} onclick={()=>collapseFeedback=''}><Icon name="close" size={13}/></button></span>{/if}
-  <button data-notebook-collapse class="icon-button" aria-label={$t('收起为悬浮笔记本')} data-tip={$t('收起为悬浮笔记本')} onclick={()=>collapseNotebook()}><Icon name="notebook" size={18}/></button>
+  <button data-notebook-collapse hidden={macFullscreen} class="icon-button" aria-label={$t('收起为悬浮笔记本')} data-tip={$t('收起为悬浮笔记本')} onclick={()=>collapseNotebook()}><Icon name="notebook" size={18}/></button>
   <button class="icon-button settings-trigger" aria-label={$t('更多')} aria-haspopup="dialog" aria-expanded={panel==='more'} data-tip={$t('设置与工具')} onclick={()=>openPanel('more')}><Icon name="more"/></button>
  <div class="window-controls"><button aria-label={$t('最小化')} data-tip={$t('最小化')} onclick={()=>windowAction('minimize')}><Icon name="minimize" size={15}/></button><button aria-label={maximized?$t('还原窗口'):$t('最大化')} data-tip={maximized?$t('还原窗口'):$t('最大化')} onclick={()=>windowAction('maximize')}><Icon name={maximized?'restore':'maximize'} size={13}/></button><button class="window-close" aria-label={$t('关闭窗口')} data-tip={$t('关闭')} onclick={()=>windowAction('close')}><Icon name="close" size={17}/></button></div>
  </header>
@@ -699,7 +739,7 @@
   {#if !auxiliary}
    <ProjectNavigation open={navigationOpen && (wideOrganizer || !(panel || preview || annotating))} docked={wideOrganizer}
     {projects} {entries} current={projectId} matched={visible.length} {filterCount}
-    bind:creating={creatingProject} onselect={switchProject} oncreate={createNavigationProject} onclose={closeNavigation} onclosed={navigationClosed}>
+    bind:creating={creatingProject} onselect={switchProject} oncreate={createNavigationProject} ondelete={deleteNavigationProject} onclose={closeNavigation} onclosed={navigationClosed}>
     {#snippet filters()}{@render filterFields()}{/snippet}
    </ProjectNavigation>
   {/if}
@@ -736,7 +776,7 @@
      {#each visible as e,i (e.id)}
       {#if i===0||day(visible[i-1].createdAt)!==day(e.createdAt)}<h2 class="day-label">{day(e.createdAt)}</h2>{/if}
       <article class:selected={selected.includes(e.id)} class:range-anchor={selecting&&anchor===e.id} onpointerdown={(event)=>{if((event.ctrlKey||event.metaKey||event.shiftKey)&&!(event.target as HTMLElement).closest('button'))select(e,event);}}
-       oncontextmenu={(event)=>{event.preventDefault();const trigger=event.currentTarget.querySelector<HTMLButtonElement>('.note-menu');if(trigger)void entryMenu(e,trigger);}}>
+       oncontextmenu={(event)=>{const trigger=event.currentTarget.querySelector<HTMLButtonElement>('.note-menu');if(trigger)openContextMenu(()=>void entryMenu(e,trigger));}}>
        {#if selecting}
         <button class="selection-check" aria-label={$t('选择记录 {note}',{note:e.text.slice(0,30)||$t('图片记录')})} aria-pressed={selected.includes(e.id)} onclick={(event)=>select(e,event)}>{#if selected.includes(e.id)}<Icon name="check" size={15}/>{/if}</button>
        {/if}
@@ -867,8 +907,8 @@
   {#if activeEntry}{@render recordActions(activeEntry)}{/if}
  </ActionPopover>
 {/if}
-<dialog class="sheet" class:standalone={panelWindow} class:delivery={panel==='delivery'} class:settings-sheet={panel==='more'} bind:this={modal} onclose={()=>afterSurfaceClose(modal,()=>panel=null)} onclick={(event)=>{if(event.target===modal){const r=modal.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closePanel();}}} aria-label={panelTitles[panel||'more']}>
- <div class="sheet-header"><h2>{panelTitles[panel||'more']}</h2><button class="icon-button" aria-label={$t('关闭面板')} onclick={closePanel}><Icon name="close"/></button></div>
+<dialog class="sheet" class:standalone={panelWindow} class:delivery={panel==='delivery'} class:settings-sheet={panel==='more'} bind:this={modal} class:settings-detail={panel==='more'&&!!settingsTool} oncancel={event=>{if(settingsTool){event.preventDefault();void backToSettings();}}} onclose={()=>afterSurfaceClose(modal,()=>{panel=null;settingsTool=null;})} onclick={(event)=>{if(event.target===modal){const r=modal.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closePanel();}}} aria-label={panelTitles[settingsTool||panel||'more']}>
+ <div class="sheet-header">{#if settingsTool}<button class="icon-button settings-back" aria-label={$t('返回')} data-tip={$t('返回')} onclick={backToSettings}><Icon name="back" size={18}/></button>{/if}<h2>{panelTitles[settingsTool||panel||'more']}</h2><button class="icon-button" aria-label={$t('关闭面板')} onclick={closePanel}><Icon name="close"/></button></div>
  <div class="sheet-body">
   {#if panel==='projects'||panel==='filters'}
   <div class="menu-section"><h3>{$t('项目')}</h3><button class="menu-row" aria-pressed={!projectId} onclick={()=>switchProject('')}>{$t('全部记录')}</button>{#each projects as p}<button class="menu-row" aria-pressed={p.id===projectId} onclick={()=>switchProject(p.id)}><span>{displayProject(p)}</span>{#if p.id===projectId}<Icon name="check" size={18}/>{/if}</button>{/each}<button class="menu-row blue-text" onclick={()=>openPanel('new-project')}><span>{$t('新建项目')}</span><Icon name="plus" size={18}/></button></div>
@@ -877,15 +917,17 @@
   {:else if panel==='move'}<form onsubmit={(event)=>{event.preventDefault();void moveNotes();}}><p class="secondary">{$t('将 {count} 条笔记移动到其他项目，内容、图片与引用保留。',{count:moveIds.length})}</p><span class="move-project-label">{$t('目标项目')}</span><SelectField label={$t('移动到项目')} disabled={busy} bind:value={moveTarget} options={moveProjects.map(p=>({value:p.id,label:displayProject(p)}))}/>{#if !moveProjects.length}<p class="secondary">{$t('请先创建另一个项目。')}</p>{/if}<div class="sheet-actions"><button type="button" disabled={busy} onclick={closePanel}>{$t('取消')}</button><button class="blue-button" disabled={busy||!moveTarget}>{busy?$t('移动中…'):$t('移动')}</button></div></form>
   {:else if panel==='windows'}{#each openWindows as w}<button class="menu-row" onclick={()=>run(async()=>{await invoke('focus_editor',{label:w.label});closePanel();})}>{w.project} · {w.summary||$t('新笔记')}{w.dirty?$t(' · 未保存'):''}</button>{:else}<p class="secondary">{$t('没有打开的笔记窗口')}</p>{/each}
   {:else if panel==='more'}
-   <SettingsPanel {theme} {chooseTheme} {startup} {startupBusy} {chooseStartup} {notebookMode} {chooseNotebook}
+   <div class="settings-root" hidden={!!settingsTool}><SettingsPanel bind:current={settingsTab} {searchShortcut} {chooseSearch} {theme} {chooseTheme} {startup} {startupBusy} {chooseStartup} {notebookMode} {chooseNotebook}
     {notebookDelay} {chooseDelay} {pinned} {pinBusy} {choosePinned} {modifier} {dataDir}
-    onopen={openPanel} onwindows={showWindows} onnew={newEntry} ondraft={newReferenceDraft}
-    onexit={()=>run(()=>invoke('resident_action',{action:'exit'}))}/>
-  {:else if panel==='agents'}<AgentPanel/>
+    onopen={enterSettingsTool} onwindows={showWindows} onnew={newEntry} ondraft={newReferenceDraft}
+    onexit={()=>run(()=>invoke('resident_action',{action:'exit'}))}/></div>
+   {#if settingsTool}<div class="settings-detail-body" data-page={settingsTool}>
+    {#if settingsTool==='help'}<HelpPanel {modifier} {searchKeys}/>
+    {:else if settingsTool==='updates'}<UpdatePanel/>
+    {:else if settingsTool==='agents'}<AgentPanel/>
+    {:else}<TemplateSettings/>{/if}
+   </div>{/if}
   {:else if panel==='publish'}<p>{$t('发布所选 {count} 条笔记的内容快照。完成结果可在“Agent 与 MCP”查看。',{count:taskIds.length})}</p><label for="task-instructions">{$t('任务说明（可选）')}</label><textarea id="task-instructions" bind:value={taskInstructions} placeholder={$t('希望 agent 完成什么，以及如何验证')}></textarea><button class="blue-button" disabled={busy} onclick={publishTask}>{$t('发布给 Agent')}</button>
-  {:else if panel==='help'}<HelpPanel/>
-  {:else if panel==='updates'}<UpdatePanel/>
-  {:else if panel==='templates'}<TemplateSettings/>
   {:else if panel==='drafts'}{#each recoveredDrafts as draft}<div class="menu-section"><p>{draft.payload.text?.slice(0,100)||$t('图片草稿')}</p><button onclick={()=>run(()=>restoreDraft(draft))}>{$t('继续编辑')}</button><button onclick={()=>run(async()=>{if(await confirmation.ask('丢弃后无法恢复这份草稿。','丢弃草稿','丢弃草稿？','保留')){await invoke('discard_draft',{id:draft.id});await refreshDrafts();}})}>{$t('丢弃')}</button></div>{:else}<p>{$t('没有待恢复的草稿')}</p>{/each}
   {:else if panel==='entry'&&activeEntry}
    <div class="menu-section">{@render recordActions(activeEntry)}</div>

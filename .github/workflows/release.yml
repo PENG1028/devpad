@@ -20,8 +20,11 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:ui:headless
+      - run: node tests/ui-refinement-headless.cjs
+        env:
+          DEVPAD_TEST_BROWSER: webkit
   version:
     runs-on: ubuntu-22.04
     outputs:

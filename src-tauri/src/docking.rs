@@ -66,6 +66,8 @@ async fn resize_surface(main:&WebviewWindow,p:PhysicalPosition<i32>,from:Physica
 pub async fn notebook_collapse(app:tauri::AppHandle,target:tauri::LogicalPosition<f64>,automatic:Option<bool>)->Result<()> {
  let main=app.get_webview_window("main").ok_or(crate::locale::language(&app).text("主窗口未打开"))?;
  let automatic=automatic.unwrap_or(false);
+ #[cfg(target_os="macos")]
+ if main.is_fullscreen().map_err(err)?{return Ok(())}
  let maximized=main.is_maximized().map_err(err)?;
  if !main.is_visible().map_err(err)?||main.is_minimized().map_err(err)?||(automatic&&maximized){return Ok(())}
  if automatic&&(dragging()||inside(&main)?){return Ok(())}
@@ -91,13 +93,13 @@ pub async fn notebook_collapse(app:tauri::AppHandle,target:tauri::LogicalPositio
   main.set_min_size(Some(tauri::LogicalSize::new(24.,24.))).map_err(err)?;
   main.set_resizable(false).map_err(err)?;
   main.set_shadow(false).map_err(err)?;
+  compact_chrome(&main,true)?;
   surface(&main,"collapsing",c,size)?;
   resize_surface(&main,p,size,small,c,animate,Some(destination)).await?;
   main.set_always_on_top(true).map_err(err)?;
-  main.set_skip_taskbar(true).map_err(err)?;
   surface(&main,"compact",c,size)?;Ok(())
  }.await;
- if result.is_err(){let _=morph_rect(&main,p,size);let _=main.set_min_size(Some(tauri::LogicalSize::new(400.,320.)));let _=main.set_resizable(true);let _=main.set_shadow(true);let _=main.set_skip_taskbar(false);let pinned=app.state::<Mutex<Dock>>().lock().map_err(err)?.pinned;let _=main.set_always_on_top(pinned);if maximized{let _=main.maximize();}let _=surface(&main,"expanded",c,size);}
+ if result.is_err(){let _=morph_rect(&main,p,size);let _=main.set_min_size(Some(tauri::LogicalSize::new(400.,320.)));let _=main.set_resizable(true);let _=main.set_shadow(true);let _=compact_chrome(&main,false);let pinned=app.state::<Mutex<Dock>>().lock().map_err(err)?.pinned;let _=main.set_always_on_top(pinned);if maximized{let _=main.maximize();}let _=surface(&main,"expanded",c,size);}
  let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;dock.moving=false;dock.hidden=result.is_ok();dock.idle_since=None;result
 }
 #[tauri::command]
@@ -137,6 +139,14 @@ pub async fn notebook_drag(app:tauri::AppHandle)->Result<bool>{
  app.state::<Mutex<Dock>>().lock().map_err(err)?.moving=false;
  result?;bubble_settle(app)
 }
+fn compact_chrome(window:&WebviewWindow,compact:bool)->Result<()> {
+ #[cfg(target_os="macos")] {
+  window.set_decorations(!compact).map_err(err)?;
+  if !compact {window.set_title_bar_style(tauri::TitleBarStyle::Overlay).map_err(err)?;}
+  Ok(())
+ }
+ #[cfg(not(target_os="macos"))] {window.set_skip_taskbar(compact).map_err(err)}
+}
 fn morph_rect(window:&WebviewWindow,position:PhysicalPosition<i32>,size:PhysicalSize<u32>)->Result<()> {
  #[cfg(windows)] {
   #[link(name="user32")] extern "system" {fn SetWindowPos(hwnd:*mut std::ffi::c_void,after:*mut std::ffi::c_void,x:i32,y:i32,w:i32,h:i32,flags:u32)->i32;}
@@ -163,7 +173,7 @@ pub async fn edge_restore(app:tauri::AppHandle,animate:bool)->Result<()> {
    resize_surface(&main,start,from,size,c,animate,destination).await?;
    let scale=main.scale_factor().map_err(err)?;
    main.set_min_size(Some(tauri::LogicalSize::new((size.width as f64/scale).min(400.),(size.height as f64/scale).min(320.)))).map_err(err)?;main.set_resizable(true).map_err(err)?;main.set_shadow(true).map_err(err)?;
-   main.set_always_on_top(pinned).map_err(err)?;main.set_skip_taskbar(false).map_err(err)?;
+   main.set_always_on_top(pinned).map_err(err)?;compact_chrome(&main,false)?;
    if let Some((normal_pos,normal_size))=normal {
     let return_to=if unmoved{normal_pos}else{main.outer_position().map_err(err)?};
     morph_rect(&main,return_to,normal_size)?;
@@ -177,7 +187,7 @@ pub async fn edge_restore(app:tauri::AppHandle,animate:bool)->Result<()> {
  if result.is_err()&&compact {
   let origin=app.state::<Mutex<Dock>>().lock().map_err(err)?.origin;
   if let (Some(p),Some(s))=(origin,stored){let _=morph_rect(&main,p,s);let _=surface(&main,"expanded",c,s);}
-  let _=main.set_min_size(Some(tauri::LogicalSize::new(400.,320.)));let _=main.set_resizable(true);let _=main.set_shadow(true);let _=main.set_always_on_top(pinned);let _=main.set_skip_taskbar(false);let _=main.show();
+  let _=main.set_min_size(Some(tauri::LogicalSize::new(400.,320.)));let _=main.set_resizable(true);let _=main.set_shadow(true);let _=main.set_always_on_top(pinned);let _=compact_chrome(&main,false);let _=main.show();
  }
  let state=app.state::<Mutex<Dock>>();let mut dock=state.lock().map_err(err)?;dock.moving=false;dock.hidden=false;dock.idle_since=None;result
 }
