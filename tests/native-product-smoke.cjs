@@ -67,7 +67,12 @@ async function stop(){if(browser){await browser.close();browser=null;}if(app&&ap
  const help=await auxiliary(main,'help');await help.getByRole('region',{name:'帮助'}).waitFor();
  const updates=await auxiliary(main,'updates');await updates.getByRole('button',{name:'检查并更新',exact:true}).waitFor();
  const templates=await auxiliary(main,'templates');await templates.getByRole('button',{name:'保存模板'}).waitFor();
- const agents=await auxiliary(main,'agents');await agents.getByRole('textbox',{name:'MCP 配置'}).waitFor();assert.ok((await agents.getByRole('textbox',{name:'MCP 配置'}).inputValue()).includes('--mcp'));
+ const agents=await auxiliary(main,'agents');
+ await tap(agents.locator('summary').filter({hasText:'MCP 配置'}));
+ const config=agents.getByRole('region',{name:'MCP 配置',exact:true});
+ await config.waitFor();assert.ok((await config.innerText()).includes('--mcp'));
+ await tap(agents.getByRole('button',{name:'返回',exact:true}));
+ assert.equal(await agents.getByRole('tab',{name:'工具'}).getAttribute('aria-selected'),'true');
  const editor=await auxiliary(main,'editor',{projectId:'inbox'});await editor.locator('.composer textarea').fill('关闭之后也要恢复的草稿\n带上完整正文');await editor.getByText('草稿已保存',{exact:true}).waitFor();
  // Simulate process interruption after autosave; the daily application is untouched.
  await stop();main=await start();const drafts=await invoke(main,'list_drafts');assert.equal(await invoke(main,'get_locale'),'zh-CN');assert.equal(drafts.length,1);assert.equal(drafts[0].payload.text,'关闭之后也要恢复的草稿\n带上完整正文');
@@ -120,6 +125,18 @@ async function stop(){if(browser){await browser.close();browser=null;}if(app&&ap
  assert.equal(saved.find(note=>note.text==='留在收件箱的输入').projectId,'inbox');
  assert.equal(saved.find(note=>note.text==='新项目中的记录').projectId,other.id);
  assert.equal(await picker.getAttribute('aria-expanded'),'true');
+ await currentEditor.fill('删除项目后仍然可编辑');
+ await main.getByText('草稿已保存',{exact:true}).waitFor();
+ await click(navigation.getByRole('button',{name:'项目操作 · 原生导航验收',exact:true}));
+ await click(main.getByRole('menuitem',{name:'删除项目',exact:true}));
+ await click(main.getByRole('dialog',{name:'删除「原生导航验收」？'}).getByRole('button',{name:'删除项目'}));
+ await navigation.getByRole('button',{name:'原生导航验收',exact:true}).waitFor({state:'detached'});
+ const afterDelete=await invoke(main,'load');
+ assert.equal(afterDelete.entries.find(note=>note.text==='新项目中的记录').projectId,'inbox');
+ assert.equal(await currentEditor.inputValue(),'删除项目后仍然可编辑');
+ await click(main.getByRole('button',{name:'保存',exact:true}));
+ await main.locator('article').getByText('删除项目后仍然可编辑',{exact:true}).waitFor();
+ assert.equal((await invoke(main,'load')).entries.find(note=>note.text==='删除项目后仍然可编辑').projectId,'inbox');
  await click(picker);
  await navigation.waitFor({state:'hidden'});
  const exited=new Promise(resolve=>app.once('exit',resolve));
