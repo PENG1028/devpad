@@ -33,6 +33,6 @@
 
 ## macOS 的标题栏与缩放
 
-这轮把主窗和独立窗的标题栏交回 AppKit。系统红黄绿按钮占用左侧，项目、搜索等操作在同一行。进入全屏由系统管理窗口。收成悬浮笔记本时暂时收起标题栏，展开时恢复原生按钮。Mac 的 Dock 与 Windows 任务栏分别处理，系统「减少动态效果」沿用现有的缩放开关。[Tauri 窗口外观](https://v2.tauri.app/learn/window-customization/) · [Apple 窗口设计](https://developer.apple.com/design/human-interface-guidelines/windows)
+这轮把主窗和独立窗的标题栏交回 AppKit。系统负责摆放红黄绿按钮，项目、搜索等操作在同一行给它们留出空间，位置跟随系统标题栏方向。进入全屏由系统管理窗口。收成悬浮笔记本时暂时收起标题栏，展开时恢复原生按钮。Mac 的 Dock 与 Windows 任务栏分别处理，系统「减少动态效果」沿用现有的缩放开关。[Tauri 窗口外观](https://v2.tauri.app/learn/window-customization/) · [Apple 窗口设计](https://developer.apple.com/design/human-interface-guidelines/windows)
 
 Mac 实机验收要覆盖红黄绿按钮、普通窗口和全屏之间切换、Retina 与外接屏之间拖动、收起展开后的原位置、草稿与选择、减少动态效果。两种架构的桌面打包和数据测试可以在 CI 完成，窗口手感及系统动画需要实际 Mac 验收。

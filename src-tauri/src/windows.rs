@@ -5,6 +5,19 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Mutex};
 use tauri::{Emitter, Manager};
 
+#[cfg(target_os = "macos")]
+pub fn apply_titlebar_direction(webview: &tauri::Webview) {
+    use objc2_app_kit::{NSWindow, NSUserInterfaceLayoutDirection};
+    let view = webview.clone();
+    let _ = webview.run_on_main_thread(move || {
+        let Ok(ptr) = view.window().ns_window() else { return };
+        // Tauri owns the NSWindow. Only borrow it during this AppKit main-thread callback.
+        let Some(window) = (unsafe { ptr.cast::<NSWindow>().as_ref() }) else { return };
+        let side = if window.windowTitlebarLayoutDirection() == NSUserInterfaceLayoutDirection::RightToLeft { "right" } else { "left" };
+        let _ = view.eval(format!("document.documentElement.dataset.macControls='{side}'"));
+    });
+}
+
 #[derive(Clone, Default, Serialize)]
 pub struct EditorState {
     pub label: String,
@@ -130,7 +143,7 @@ pub async fn open_aux(app:tauri::AppHandle,kind:String,payload:Value)->Result<St
     let builder=tauri::WebviewWindowBuilder::new(&app,&label,tauri::WebviewUrl::App(format!("index.html?window={}&instance={label}",if label=="organizer"{"organizer"}else{&kind}).into()))
         .title(title).inner_size(w,h).min_inner_size(420.,380.).decorations(cfg!(target_os="macos")).visible(false).disable_drag_drop_handler().always_on_top(pinned).center();
     #[cfg(target_os="macos")]
-    let builder=builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true).traffic_light_position(tauri::LogicalPosition::new(14.,15.));
+    let builder=builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
     if let Err(e)=builder.build() {
         cleanup(&app,&label);return Err(err(e))
     }

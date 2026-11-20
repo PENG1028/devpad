@@ -245,7 +245,11 @@ fn initialize_database(db:&mut Connection,root:&Path)->Result<()> {
  migrate_records(db,root)?;note_types::schema(db)?;drafts::schema(db)?;tasks::schema(db)?;
  db.execute("INSERT INTO projects(id,name) SELECT 'inbox','收件箱' WHERE NOT EXISTS(SELECT 1 FROM projects)",[]).map_err(err)?;Ok(())
 }
-fn main(){if std::env::args().any(|arg|arg=="--mcp"){if let Err(error)=mcp::run(){eprintln!("DevPad MCP: {error}");std::process::exit(1);}return;}let mut context=tauri::generate_context!();if let Some(root)=std::env::var_os("DEVPAD_DATA_DIR"){use std::hash::{Hash,Hasher};let mut hash=std::collections::hash_map::DefaultHasher::new();root.hash(&mut hash);context.config_mut().identifier=format!("local.devpad.test-{:x}",hash.finish());}resident::set_application_id(&context.config().identifier).expect("设置应用标识失败");tauri::Builder::default()
+fn main(){if std::env::args().any(|arg|arg=="--mcp"){if let Err(error)=mcp::run(){eprintln!("DevPad MCP: {error}");std::process::exit(1);}return;}let mut context=tauri::generate_context!();if let Some(root)=std::env::var_os("DEVPAD_DATA_DIR"){use std::hash::{Hash,Hasher};let mut hash=std::collections::hash_map::DefaultHasher::new();root.hash(&mut hash);context.config_mut().identifier=format!("local.devpad.test-{:x}",hash.finish());}resident::set_application_id(&context.config().identifier).expect("设置应用标识失败");
+let builder=tauri::Builder::default();
+#[cfg(target_os="macos")]
+let builder=builder.on_page_load(|view,payload|{if matches!(payload.event(),tauri::webview::PageLoadEvent::Finished){windows::apply_titlebar_direction(view);}});
+builder
 .plugin(tauri_plugin_updater::Builder::new().build())
 .plugin(tauri_plugin_process::init())
 .plugin(tauri_plugin_autostart::Builder::new().args(["--autostart"]).build())

@@ -1,5 +1,5 @@
 {
   "app": {
-    "windows": [{"title":"DevPad","width":1040,"height":780,"minWidth":400,"minHeight":320,"dragDropEnabled":false,"decorations":true,"titleBarStyle":"Overlay","hiddenTitle":true,"trafficLightPosition":{"x":14,"y":17},"visible":false,"transparent":false}]
+    "windows": [{"title":"DevPad","width":1040,"height":780,"minWidth":400,"minHeight":320,"dragDropEnabled":false,"decorations":true,"titleBarStyle":"Overlay","hiddenTitle":true,"visible":false,"transparent":false}]
   }
 }

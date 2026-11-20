@@ -87,8 +87,9 @@ dialog[open]::backdrop { opacity: 1; }
  min-height: 38px; margin: 2px 0; padding: 6px 11px; text-align: start; font-size: 14px;
  border-radius: 7px;
 }
-/* AppKit places its window controls on the physical left in both layout directions. */
+/* The native title bar follows the system language independently of the journal language. */
 html[data-native-mac] :is(.journal-titlebar,.aux-titlebar) { padding-left:84px; padding-right:10px; }
+html[data-native-mac][data-mac-controls=right] :is(.journal-titlebar,.aux-titlebar) { padding-left:10px; padding-right:84px; }
 html[data-native-mac] .window-controls,.journal-titlebar [hidden] { display:none; }
 .project-row, .project-item { position: relative; }
 .project-actions { position:absolute; inset-inline-end:4px; top:50%; transform:translateY(-50%); padding:4px; min-height:28px; width:28px; height:28px; color:var(--secondary); }

@@ -26,6 +26,9 @@ tauri-plugin-autostart = "2.7.0"
 dirs = "6"
 font8x8 = "0.3"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSWindow", "NSUserInterfaceLayout"] }
+
 [target.'cfg(windows)'.dependencies]
 clipboard-win = "5"
 winreg = "0.55"
